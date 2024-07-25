@@ -16,9 +16,12 @@ input = WfAdarRadar
 // create channels from input
 fastqs = Channel
     .fromList(input)
-    .filter { it.fastq1 != null & it.fastq2 != null }
     .filter { it.bam == null & it.jacusa == null }
-    .map { [it.sample, file(it.fastq1, checkIfExists: true), file(it.fastq2, checkIfExists: true)] }
+    .filter { it.fastq1 != null }
+    .map { 
+        [ it.sample,  [file(it.fastq1, checkIfExists: true)] + 
+          (it.fastq2 == null ? [] : [file(it.fastq2, checkIfExists: true)]) ]
+    }
 
 bams_no_jacusa = Channel
     .fromList(input)

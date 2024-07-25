@@ -1,7 +1,7 @@
 
 process COMBINE_SAM_DEPTH {
     cpus    1
-    memory '4 GB'
+    memory "${task.attempt * 32} GB"
     time   '2 h'
     label  'R'
     publishDir "${params.outdir}/rds", pattern: '*.rds', mode: 'copy'

@@ -7,7 +7,7 @@ process STAR_2_PASS {
     tag "$sample"
 
     input:
-    tuple val(sample), path(fastq1), path(fastq2)
+    tuple val(sample), path(fastqs)
     path star_genome_dir
     path star_gtf
 
@@ -21,7 +21,7 @@ process STAR_2_PASS {
         --runThreadN $task.cpus \\
         --genomeDir $star_genome_dir \\
         --sjdbGTFfile $star_gtf \\
-        --readFilesIn $fastq1 $fastq2  \\
+        --readFilesIn $fastqs \\
         --readFilesCommand zcat \\
         --outFileNamePrefix ${sample}. \\
         --outSAMtype BAM SortedByCoordinate \\
