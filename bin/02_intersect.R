@@ -125,7 +125,16 @@ genFeatures_spread <-
   semi_join(siteStats_anno_RM, by = "siteID") %>%
   mutate(dummy = 1) %>%
   spread(feature, dummy) %>%
-  mutate(stop_codon = `if`(exists("stop_codon"), stop_codon, NA)) %>%
+  bind_rows(
+    tibble(
+      exon = numeric(),
+      five_prime_utr = numeric(),
+      gene = numeric(),
+      start_codon = numeric(),
+      stop_codon = numeric(),
+      three_prime_utr = numeric()
+    )
+  ) %>% 
   mutate(
     intronic = ifelse(gene == 1 & is.na(exon) & is.na(five_prime_utr) & is.na(stop_codon) & is.na(three_prime_utr), 1, NA),
     exonic   = ifelse(is.na(intronic), 1, NA)
