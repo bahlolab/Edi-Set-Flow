@@ -1,0 +1,752 @@
+---
+title: "EdiSetFlow Report"
+editor: source
+format:
+  html:
+    toc: true
+    toc-location: left  
+    toc-depth: 3
+    toc-expand: true
+    embed-resources: true
+    page-layout: full
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 300
+    fig-retina: 2
+    include-before-body: 
+      text: |
+        <style>
+          #title-block-header {
+            display: none !important;
+          }
+          figure.figure img {
+            max-width: 768px !important;
+            height: auto !important;
+          }
+          /* Static, rounded navbar spanning full width of the grid */
+          #site-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.5rem;
+            background-color: #007acc;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            margin-bottom: 1rem;
+          }
+          #site-nav .nav-left h1 {
+            color: white;
+            margin: 0;
+          }
+          #site-nav .nav-right {
+            display: flex;
+            gap: 0.5rem;
+          }
+          #site-nav .nav-right a {
+            background: white;
+            padding: 0.25rem;
+            border-radius: 0.5rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+          }
+          #site-nav img {
+            height: 2em;
+          }
+        </style>
+        <nav id="site-nav">
+          <div class="nav-left">
+            <h1>Edi-Set-Flow Report</h1>
+          </div>
+          <div class="nav-right">
+            <a href="https://github.com/bahlolab/Edi-Set-Flow" aria-label="GitHub">
+              <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" alt="GitHub">
+            </a>
+            <a href="https://www.wehi.edu.au/laboratory/bahlo-lab/" aria-label="WEHI Bahlo Lab">
+              <img src="https://www.wehi.edu.au/wp-content/uploads/2023/12/logo@2x-compressed.png"
+                   alt="WEHI Bahlo Lab">
+            </a>
+          </div>
+        </nav>
+execute:
+  echo:    false
+  warning: false
+  message: false
+params:
+  edisites: null
+  metadata: null
+  fixed_effects: null
+  model: 'quasibinomial'
+  threads: 8
+  # global filters
+  min_med_dp:  10
+  min_med_vaf: 0.001
+  max_med_vaf: 1.0
+  adar_only: true
+  # group filters for modeling group effect
+  grp_min_med_dp: 10
+  grp_min_med_vaf: 0.001
+  grp_max_med_vaf: 0.999
+  output: 'output'
+---
+
+```{r setup}
+library(tidyverse)
+library(multidplyr)
+library(patchwork)
+library(edisetr)
+
+# check params
+stopifnot(
+  is.character(params$edisites),
+  length(Sys.glob(params$edisites)) > 0,
+  file.exists(params$metadata),
+  is_scalar_integer(params$min_med_dp),
+  is_scalar_double(params$min_med_vaf) || is_scalar_integer(params$min_med_vaf),
+  is_scalar_double(params$max_med_vaf) || is_scalar_integer(params$max_med_vaf),
+  is_scalar_integer(params$grp_min_med_dp),
+  is_scalar_double(params$grp_min_med_vaf) || is_scalar_integer(params$grp_min_med_vaf),
+  is_scalar_double(params$grp_max_med_vaf) || is_scalar_integer(params$grp_max_med_vaf),
+  is.null(params$fixed_effects) || is_character(params$fixed_effects)
+)
+
+# check sample medatadata
+sample_metadata <- read_csv(params$metadata) 
+fixed_effects <- NULL
+if (!is.null(params$fixed_effects)) {
+  fixed_effects <- c(str_split(params$fixed_effects,pattern = ',', simplify = T))
+}
+stopifnot(
+  nrow(sample_metadata) > 2,
+  "sample_id" %in% colnames(sample_metadata),
+  "group"     %in% colnames(sample_metadata),
+  is.null(fixed_effects) || all(fixed_effects%in% colnames(sample_metadata))
+)
+```
+
+```{r read_edisites}
+threads <- min(params$threads, length(Sys.glob(params$edisites)))
+if (threads > 1) {
+  nt <- min()
+  if (!exists('cluster') || !edisetr::cluster_check(cluster, stop=FALSE)) {
+    cluster <- multidplyr::new_cluster(threads)
+  }
+} else {
+  cluster <- NULL
+}
+
+edisites <- 
+  edisetr::read_edisites(
+    sites_files     = params$edisites,
+    cluster         = cluster,
+    min_med_dp      = params$min_med_dp,
+    min_med_vaf     = params$min_med_vaf,
+    max_med_vaf     = params$max_med_vaf,
+    adar_only       = params$adar_only,
+    snp_detect      = TRUE,
+    sample_group    = select(sample_metadata, sample_id, group),
+    grp_min_med_dp  = params$grp_min_med_dp,
+    grp_min_med_vaf = params$grp_min_med_vaf,
+    grp_max_med_vaf = params$grp_max_med_vaf,
+    drop_failed     =  TRUE,
+    .n_max          = Inf
+  )
+
+```
+
+## QC
+### Filtering
+
+```{r filtering_summary}
+edisites$summary %>% 
+  count(reason) %>% 
+  mutate(reason = replace_na(reason, 'pass')) %>% 
+   mutate(reasons = reason) %>% 
+  separate_rows(reason, sep =';') %>% 
+  group_by(reason) %>%
+  mutate(nr = sum(n)) %>% 
+  ungroup() %>% 
+  arrange(nr) %>% 
+  mutate(reason = factor(reason, unique(c('pass', reason))),
+         prop = n / sum(n)) %>% 
+  mutate(reasons = if_else(prop < 0.01, 'other', reasons)) %>% 
+  ggplot(aes(reason, prop)) +
+  geom_col(aes(fill = reasons)) +
+  coord_flip() +
+  labs(
+    title  = 'Site Filtering Summary',
+    subtitle = str_c(
+      format(sum(edisites$summary$pass),  big.mark = ','), 
+      ' of ',
+      format(nrow(edisites$summary),  big.mark = ','),
+      ' sites passed (',
+      format(100 * sum(edisites$summary$pass) / nrow(edisites$summary),  digits =  3),
+      '%)'
+    ),
+    y = 'Proportion of sites',
+    x = 'Filtering Reason',
+    fill = 'Reason intersect'
+  )
+```
+
+### Coverage & rate
+```{r depth_vaf}
+p1 <-
+  edisites$summary %>% 
+  filter(pass) %>% 
+  ggplot(aes(med_depth, med_vaf)) +
+  geom_point(alpha = 0.05, size = 0.1) +
+  scale_x_continuous(
+    trans = 'log1p',
+    ) +
+  labs(
+    title = 'Site-wise depth vs VAF',
+    y = 'Median Editing VAF',
+    x = 'Median Depth'
+  )
+
+p2 <-
+  edisites$sample_summary %>% 
+  ggplot(aes(med_depth, med_vaf)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  labs(
+    title = 'Sample-wise depth vs VAF',
+    y = 'Median Editing VAF',
+    x = 'Median Depth'
+  )
+
+(p1 + p2)
+```
+
+### Sample summary table
+```{r sample_smry}
+edisites$sample_summary %>% 
+  (function(x) {
+    DT::datatable(x) %>%
+      DT::formatSignif(
+        columns = which(map_lgl(x, is.numeric)),
+        digits = 3
+      )
+  })
+```
+
+## Editing Summary
+### Base change distribution
+
+```{r sites_basechange_smry}
+
+basechange_smry <-
+  edisites$summary %>%
+  filter(pass | reason == 'non_adar') %>% 
+  mutate(base_change = get_base_change(site_id)) %>% 
+  select(base_change, rep_type, med_vaf) %>%  
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  add_count(base_change) %>% 
+  arrange(n) %>% 
+  mutate(base_change = as_factor(base_change))
+
+p1 <- 
+  basechange_smry %>% 
+  select(base_change, n) %>% 
+  distinct() %>% 
+  ggplot(aes(base_change, n)) +
+  geom_col(aes(fill = base_change), show.legend = F) +
+  coord_flip() +
+  theme(axis.text.y = element_text(family = "Courier")) +
+  labs(x = 'Base change', y = 'Count')
+
+p2 <-
+  basechange_smry %>% 
+  ggplot(aes(base_change, med_vaf)) +
+  geom_boxplot(
+    aes(fill = base_change),
+    show.legend = FALSE,
+    outlier.alpha = 0.25,
+    outlier.size = 1
+  ) +
+  # geom_jitter(alpha = 0.05, height = 0) +
+  coord_flip() + 
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), axis.ticks.y = element_blank())  +
+  labs(y = 'Median Rate')
+
+p3 <-
+  basechange_smry %>% 
+  count(base_change, rep_type) %>% 
+  group_by(base_change) %>% 
+  mutate(prop = n /sum(n)) %>% 
+  ggplot(aes(base_change, prop)) +
+  geom_col(aes(fill = rep_type)) +
+  scale_fill_brewer(palette = 'Dark2') +
+  coord_flip() +
+  theme(
+    legend.position = 'right',
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    y = 'Proportion',
+    fill = 'Repeat type'
+  )
+
+
+(p1 | p2 | p3) + 
+  plot_annotation(
+    title = 'Base change frequency, editing rate and repeat type'
+  )
+```
+
+### Editing site consequences
+
+```{r vep_csq_smry}
+vep_csq_smry <-
+  edisites$summary %>% 
+  filter(pass, is_adar) %>% 
+  select(site_id, med_vaf, rep_type, consequence) %>% 
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  separate_rows(consequence, sep = '&') %>% 
+  group_by(site_id) %>% 
+  mutate(weight = 1 /n()) %>% 
+  ungroup() %>% 
+  filter(!is.na(consequence)) %>%  
+  group_by(consequence) %>% 
+  mutate(weighted_total = sum(weight)) %>% 
+  ungroup() %>% 
+  arrange(weighted_total) %>% 
+  filter(weighted_total / sum(unique(weighted_total)) > 0.0001) %>%
+  mutate(consequence = 
+           str_replace_all(consequence, '_', ' ') %>% 
+           str_remove(' variant$') %>% 
+           str_wrap(width = 20)) %>% 
+  mutate(consequence = as_factor(consequence))
+
+p1 <- 
+  vep_csq_smry %>% 
+  select(consequence, weighted_total) %>% 
+  distinct() %>% 
+  ggplot(aes(consequence, weighted_total)) +
+  geom_col(aes(fill = consequence), show.legend = F) +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(
+    x = 'Variant Consequence', 
+    y = 'Total'
+  )
+
+
+p2 <-
+  vep_csq_smry %>% 
+  ggplot(aes(consequence, med_vaf)) +
+  geom_boxplot(
+    aes(fill = consequence),
+    show.legend = FALSE,
+    outlier.alpha = 0.25,
+    outlier.size = 1
+  ) +
+  # geom_jitter(alpha = 0.05, height = 0) +
+  coord_flip() + 
+  theme(
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )  +
+  labs(y = 'Median Rate')
+
+p3 <-
+  vep_csq_smry %>% 
+  select(rep_type, consequence, weight) %>% 
+  group_by(consequence, rep_type) %>% 
+  summarise(weight = sum(weight), .groups = 'drop') %>% 
+  group_by(consequence) %>% 
+  mutate(prop = weight /sum(weight)) %>% 
+  ggplot(aes(consequence, prop)) +
+  geom_col(aes(fill = rep_type)) +
+  scale_fill_brewer(palette = 'Dark2') +
+  coord_flip() +
+  theme(
+    legend.position = 'right',
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    y = 'Proportion',
+    fill = 'Repeat type'
+  )
+
+
+(p1 | p2 |p3) + 
+  plot_annotation(
+    title = 'ADAR editing by variant consequence and repeat type'
+  )
+
+```
+
+### Highly edited sites by VEP impact
+
+```{r top_edited_sites}
+edisites$summary %>% 
+  filter(pass) %>% 
+  select(symbol, site_id, med_vaf, rep_type, impact, consequence, amino_acids, redi_acc) %>% 
+  mutate(impact = factor(impact, c('HIGH', 'MODERATE', 'LOW', 'MODIFIER'))) %>% 
+  group_by(impact) %>% 
+  slice_max(order_by = med_vaf, n = 100, with_ties = F) %>% 
+  ungroup() %>% 
+  arrange(impact, desc(med_vaf)) %>% 
+  (function(x) {
+    DT::datatable(x) %>%
+      DT::formatSignif(
+        columns = which(map_lgl(x, is.numeric)),
+        digits = 3
+      )
+  })
+  
+```
+
+```{r fit_edisites}
+covariates_df <-
+    sample_metadata %>%
+    select(sample_id, group, all_of(fixed_effects))
+
+edifit <- fit_edisites(
+  counts_df     = edisites$counts ,
+  covariates_df = covariates_df,
+  fixed_effects = fixed_effects,
+  model         = params$model,
+  fdr_bh        = TRUE,
+  permute_group = FALSE
+)
+```
+
+## Differential editing by group
+
+```{r anova_prep}
+manh_dat <-
+  edifit$anova %>% 
+  left_join(
+    edisites$summary %>% 
+      select(site_id, is_adar, rep_type, consequence, impact, symbol, biotype, amino_acids),
+    by = 'site_id'
+  ) %>% 
+  filter(term == 'group') %>% 
+  mutate(
+    chrom = get_chrom(site_id),
+    pos = get_pos(site_id)
+  ) %>% 
+  arrange(
+    str_extract(chrom, '[0-9]+') %>% as.integer(),
+    pos
+  ) %>% 
+  filter(!is.na(pos)) %>% 
+  group_by(chrom) %>% 
+  mutate(max_pos = max(pos, na.rm = T)) %>% 
+  ungroup() %>% 
+  nest(data = -c(chrom, max_pos)) %>% 
+  mutate(
+    offset = lag(max_pos, default = 0) %>% as.numeric() %>% cumsum(),
+    mid    = offset + (max_pos / 2),
+    colg   = as_factor(rep(c(1:2), length.out=n()))) %>% 
+  unnest(data) %>% 
+  mutate(pos = pos+offset) %>% 
+  filter(!chrom %in% c('chrY', 'chrM'))
+
+manh_labels <-
+  manh_dat %>% 
+  group_by(chrom) %>% 
+  summarise(mid = first(mid), .groups = 'drop') %>% 
+  mutate(chrom = str_remove(chrom, 'chr'))
+
+man_genes <-
+  manh_dat %>% 
+  mutate(group = case_when(
+    rep_type == 'NONREP' & str_detect(consequence, 'missense') ~ 'Non-rep. missense',
+    rep_type == 'NONREP'                       ~ 'Non-rep. non-coding',
+    rep_type != 'NONREP' & str_detect(consequence, 'missense') ~ 'Rep. missense',
+    TRUE                                       ~ 'Rep. non-coding'
+  )) %>% 
+  group_by(group, symbol) %>%
+  slice_min(p_value, n = 1) %>% 
+  group_by(group) %>% 
+  slice_min(p_value, n = 6) %>% 
+  ungroup() %>% 
+  mutate(symbol = if_else(
+    !is.na(amino_acids),
+    str_c(symbol, ' (', str_replace(amino_acids, '/', '>'), ')'),
+    symbol)
+  ) %>% 
+  select(site_id,pos, symbol, group, p_value) %>% 
+  mutate(logp = if_else(
+    str_detect(group, 'Non-rep'),
+    -log10(p_value),
+    log10(p_value)
+  )) %>% 
+  filter(group != 'Rep. missense')
+```
+
+### Number of differentially edited sites 
+
+```{r anova_rate }
+p1 <-
+  manh_dat %>% 
+  mutate(is_sig = q_value_bh < 1e-5) %>% 
+  count(is_sig, rep_type) %>% 
+  group_by(rep_type) %>% 
+  mutate(p = n / sum(n)) %>% 
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  ggplot() +
+  geom_col(aes(rep_type, n, fill = is_sig)) +
+  theme(legend.position = c(0.55, 0.8)) +
+  coord_flip() +
+  labs(
+    fill = 'Significant group effect\np-value BH < 1e-3',
+    x = 'Repeat type', y = 'Count'
+  )
+
+p2 <-
+  manh_dat %>% 
+  mutate(is_sig = q_value_bh < 1e-3) %>% 
+  count(is_sig, rep_type) %>% 
+  group_by(rep_type) %>% 
+  mutate(p = n / sum(n)) %>% 
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  ggplot() +
+  geom_col(aes(rep_type, p, fill = is_sig), show.legend = F) +
+  coord_flip()+
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.title.y = ggplot2::element_blank()
+  ) +
+  labs(
+    fill = 'Significant group effect\np-value BH < 1e-3',
+    y = 'Proportion'
+  )
+
+p1 + p2
+
+```
+
+### Differential editing Manhattan-style plot
+```{r anova_manhattan }
+bind_rows(
+  manh_dat %>% 
+    filter(rep_type == 'NONREP') %>% 
+    mutate(logp = -log10(p_value)),
+  manh_dat %>% 
+    filter(rep_type != 'NONREP') %>% 
+    mutate(logp = log10(p_value))) %>% 
+  ggplot(aes(pos, logp)) +
+  geom_point(
+    aes(col = colg),
+    size = 0.3, 
+    show.legend = F
+  ) + 
+  scale_color_manual(
+    values = c(`1` = "#2372B9", `2` = "#49A942")
+  ) +
+  ggrepel::geom_label_repel(
+    aes(label = symbol),
+    min.segment.length = 0,
+    data = man_genes,
+    fill  = alpha("white", 0.7),
+    size = 3.5
+  ) +
+  scale_x_continuous(
+    breaks = manh_labels$mid,
+    minor_breaks = NULL,
+    labels = manh_labels$chrom
+  ) +
+  scale_y_continuous(
+    breaks = seq(-100, 100, by = 50),
+    minor_breaks = NULL,
+    labels = abs(seq(-100, 100, by = 50))
+  ) +
+  geom_hline(yintercept = 0) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5)
+  ) +
+  labs(
+    title = 'Anova test for group effect',
+    subtitle = 'Upper: non-repetitive; Lower: repetitive',
+    x = 'Chromosome',
+    y = '-log10 p-value'
+  )
+```
+
+```{r marg_rate}
+marg_rate <-
+  edifit$anova %>% 
+  filter(term == 'group', q_value_bh < 1e-5) %>% 
+  select(site_id) %>% 
+  left_join(
+    edifit$margins,
+    by = 'site_id'
+  ) %>% 
+  select(site_id, group, estimate) %>% 
+  pivot_wider(names_from = group, values_from = estimate) %>% 
+  na.omit() %>% 
+  as.data.frame() %>% 
+  column_to_rownames('site_id') %>% 
+  t()
+
+group_clust <- hclust(dist(marg_rate), method = 'average')
+group_ord <- rev(group_clust$labels[group_clust$order])
+```
+### Top differentially edited sites, 1000 per VEP impact
+```{r top_diff_table}
+edifit$anova %>% 
+  filter(term == 'group') %>% 
+  left_join(
+    edisites$summary %>% 
+      select(site_id, redi_acc,is_adar, rep_type, consequence, impact, symbol, biotype, amino_acids),
+    by = 'site_id'
+  ) %>% 
+  group_by(impact) %>% 
+  slice_min(order_by = p_value, n = 1000) %>% 
+  ungroup() %>% 
+  select(site_id, redi_acc, p_value, q_value_bh, rep_type, symbol, impact, consequence, amino_acids) %>% 
+  (function(x) {
+    DT::datatable(x) %>%
+      DT::formatSignif(
+        columns = which(map_lgl(x, is.numeric)),
+        digits = 3
+      )
+  })
+```
+
+### Marginal editing by group at top differential sites
+```{r top_6_diff}
+
+top_diffed_marg <-
+  man_genes %>% 
+  rename(type = group) %>% 
+  arrange(p_value) %>% 
+  left_join(edifit$margins, by = 'site_id') %>% 
+  mutate(label = str_c(
+    symbol, '\n',
+    str_remove(site_id, '_._.:.') %>% str_replace('_', ':'), '\n',
+    'p-value = ', signif(p_value,digits = 2))
+  ) %>% 
+  mutate(label = as_factor(label)) %>% 
+  mutate(group = factor(group, group_ord))
+
+top_diffed_vaf <-
+  edisites$counts %>% 
+  semi_join(top_diffed_marg, by = 'site_id', copy = TRUE) %>% 
+  collect() %>%
+  filter(depth >= 10) %>% 
+  left_join(
+    sample_metadata %>% select(sample_id, group),
+    by = 'sample_id'
+  ) %>% 
+  mutate(group = factor(group, group_ord)) %>% 
+  left_join(
+    select(top_diffed_marg, site_id, type) %>% distinct(),
+    by = 'site_id'
+  ) %>% 
+  select(site_id, type, group, sample_id, vaf) %>% 
+  inner_join(
+    top_diffed_marg %>%
+      select(site_id, label) %>% 
+      distinct(), 
+    by = 'site_id'
+  )
+
+marg_plot <- function(type) {
+  top_diffed_marg %>% 
+    filter(type == !!type) %>% 
+    ggplot(aes(group, estimate)) +
+    geom_jitter(
+      aes(y = vaf, col = group),
+      data = top_diffed_vaf %>% filter(type == !!type),
+      height = 0,
+      alpha =0.33,
+      size = 0.75,
+      width = 0.4,
+      show.legend = F
+    ) +
+    geom_errorbar(
+      aes(ymin = ci_lower, ymax = ci_upper),
+      width = 0.7
+    ) +
+    coord_flip() +
+    facet_wrap(~label, ncol = 3) +
+    labs(
+      title = type,
+      x = 'Group',
+      y = 'Editing VAF'
+    )
+}
+
+if ('Non-rep. missense' %in% top_diffed_marg$type) {
+  marg_plot('Non-rep. missense')
+}
+if ('Non-rep. non-coding' %in% top_diffed_marg$type) {
+  marg_plot('Non-rep. non-coding')
+}
+if ('Rep. non-coding' %in% top_diffed_marg$type) {
+  marg_plot('Rep. non-coding')
+}
+```
+
+### Clustered heatmap at differential sites
+```{r}
+ann <-
+  edisites$summary %>% 
+  filter(site_id %in% colnames(marg_rate)) %>% 
+  mutate(Status = if_else(rep_type == 'NONREP', 'Non-repetitive', 'Repetitive')) %>% 
+  select(site_id, Status) %>% 
+  as.data.frame() %>% 
+  column_to_rownames('site_id')
+  
+pheatmap::pheatmap(
+  marg_rate,
+  clustering_method = 'average',
+  show_colnames = F,
+  annotation_col = ann
+)
+```
+
+## Parameters
+```{r params}
+print(params)
+```
+
+```{r write_ouputs}
+write_csv(
+  edisites$summary,
+  str_c(params$output, '.site_summary.csv.gz')
+)
+
+write_csv(
+  edisites$sample_summary,
+  str_c(params$output, '.sample_summary.csv.gz')
+)
+
+write_csv(
+  collect(edisites$counts),
+  str_c(params$output, '.sample_counts.csv.gz')
+)
+
+write_csv(
+  edifit$summary,
+  str_c(params$output, '.glm_summary.csv.gz')
+)
+
+write_csv(
+  edifit$anova,
+  str_c(params$output, '.glm_anova.csv.gz')
+)
+
+write_csv(
+  edifit$margins,
+  str_c(params$output, '.glm_margins.csv.gz')
+)
+
+write_csv(
+  edifit$contrasts,
+  str_c(params$output, '.glm_contrasts.csv.gz')
+)
+```
+
