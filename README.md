@@ -1,10 +1,5 @@
-# ADAR-RADAR - Detecting RNA editing at scale
-Nextflow pipeline for detection, annotation and analysis of RNA editing
-
-*This pipeline is under construction - watch this space for updates.*
-
-## Interested in running ADAR-RADAR on your data?
-* Please complete [this survery](https://forms.office.com/r/xneienUMBu) if you are interested in testing a beta-version of ADAR-RADAR on your data
+# Edi-Set-Flow - Detecting RNA editing at scale
+A robust pipeline for RNA editing detection and differential analysis in bulk RNA-seq
 
 ## Overview
-<p align="center"><img src="img/ADAR-radar.png"/></p>
+<p align="center"><img src="img/Edi-Set-Flow.png"/></p>
