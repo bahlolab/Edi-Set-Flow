@@ -35,7 +35,7 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 - **Example:**
     ```{bash}
     nextflow run bahlolab/Edi-Set-Flow \
-        -r 25.07-beta.1 \
+        -r 25.07-beta.2 \
         -profile singularity \
         -resume \
         --input sample_manifest.csv \

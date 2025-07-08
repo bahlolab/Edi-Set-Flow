@@ -93,7 +93,7 @@ params.analysis_threads  = 32
 
 // dev params
 params.edisetr_repo = "bahlolab/Edi-Set-Flow/edisetr"
-params.edisetr_ver  = "25.07-beta.1"
+params.edisetr_ver  = "25.07-beta.2"
 
 
 
