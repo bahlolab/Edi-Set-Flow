@@ -161,16 +161,19 @@ edisites <-
 ```{r filtering_summary}
 edisites$summary %>% 
   count(reason) %>% 
-  mutate(reason = replace_na(reason, 'pass')) %>% 
-   mutate(reasons = reason) %>% 
+  mutate(
+    prop = n / sum(n),
+    reason = replace_na(reason, 'pass'),
+    reasons = reason) %>% 
   separate_rows(reason, sep =';') %>% 
   group_by(reason) %>%
-  mutate(nr = sum(n)) %>% 
+  mutate(nr = sum(n),) %>% 
   ungroup() %>% 
   arrange(nr) %>% 
-  mutate(reason = factor(reason, unique(c('pass', reason))),
-         prop = n / sum(n)) %>% 
-  mutate(reasons = if_else(prop < 0.01, 'other', reasons)) %>% 
+  mutate(
+    reason = factor(reason, unique(c('pass', reason))),
+    reasons = if_else(prop < 0.01, 'other', reasons),
+    status = if_else(reason == 'pass', 'Included', 'Excluded')) %>% 
   ggplot(aes(reason, prop)) +
   geom_col(aes(fill = reasons)) +
   coord_flip() +
@@ -187,7 +190,8 @@ edisites$summary %>%
     y = 'Proportion of sites',
     x = 'Filtering Reason',
     fill = 'Reason intersect'
-  )
+  ) +
+  facet_grid(status ~ ., scales = 'free_y', space = 'free_y',switch = 'y')
 ```
 
 ### Coverage & rate
@@ -223,7 +227,13 @@ p2 <-
 ```{r sample_smry}
 edisites$sample_summary %>% 
   (function(x) {
-    DT::datatable(x) %>%
+    DT::datatable(
+      x,
+      extensions = 'Buttons',
+      options = list(
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      )) %>%
       DT::formatSignif(
         columns = which(map_lgl(x, is.numeric)),
         digits = 3
@@ -395,7 +405,13 @@ edisites$summary %>%
   ungroup() %>% 
   arrange(impact, desc(med_vaf)) %>% 
   (function(x) {
-    DT::datatable(x) %>%
+    DT::datatable(
+      x,
+      extensions = 'Buttons',
+      options = list(
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      )) %>%
       DT::formatSignif(
         columns = which(map_lgl(x, is.numeric)),
         digits = 3
@@ -593,6 +609,7 @@ marg_rate <-
 group_clust <- hclust(dist(marg_rate), method = 'average')
 group_ord <- rev(group_clust$labels[group_clust$order])
 ```
+
 ### Top differentially edited sites, 1000 per VEP impact
 ```{r top_diff_table}
 edifit$anova %>% 
@@ -607,7 +624,13 @@ edifit$anova %>%
   ungroup() %>% 
   select(site_id, redi_acc, p_value, q_value_bh, rep_type, symbol, impact, consequence, amino_acids) %>% 
   (function(x) {
-    DT::datatable(x) %>%
+    DT::datatable(
+      x,
+      extensions = 'Buttons',
+      options = list(
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      )) %>%
       DT::formatSignif(
         columns = which(map_lgl(x, is.numeric)),
         digits = 3
@@ -689,6 +712,86 @@ if ('Rep. non-coding' %in% top_diffed_marg$type) {
   marg_plot('Rep. non-coding')
 }
 ```
+### PCA - Group and covariates
+
+```{r pca}
+
+pca_data <-
+  edifit$anova %>% 
+  filter(term == 'group', q_value_bh < 1e-5) %>% 
+  select(site_id) %>% 
+  inner_join(
+    edifit$margins %>% 
+      add_count(site_id) %>% 
+      filter(n ==  n_distinct(sample_metadata$group)) %>% 
+      select(site_id, group, estimate),
+    by = 'site_id'
+  ) %>% 
+  inner_join(
+    sample_metadata %>% select(sample_id, group),
+    by = 'group',
+    relationship = 'many-to-many'
+  ) %>% 
+  left_join(
+    edisites$counts %>% 
+      select(site_id, sample_id, vaf) %>% 
+      collect(),
+    by = c('site_id', 'sample_id')
+  ) %>% 
+  mutate(vaf = if_else(is.na(vaf), estimate, vaf)) %>% 
+  select(site_id, sample_id, vaf) %>% 
+  pivot_wider(names_from = site_id, values_from = vaf) %>% 
+  as.data.frame() %>% 
+  column_to_rownames('sample_id')
+  
+ed_pca <- prcomp(pca_data)
+
+ed_pca_covar <-
+  sample_metadata %>% 
+  select(sample_id, group, all_of(fixed_effects)) %>% 
+  inner_join(
+    edisites$sample_summary %>% 
+      select(sample_id, med_vaf)
+  ) %>% 
+  inner_join(
+    as.data.frame(ed_pca$x[,1:5]) %>% 
+        rownames_to_column('sample_id'),
+    by = 'sample_id'
+  )
+
+ps <-
+  c('group', fixed_effects, 'med_vaf') %>% 
+  map(
+    function(x) {
+      ed_pca_covar %>% 
+        ggplot(aes(PC1, PC2)) +
+        geom_point(
+          aes(col = !!sym(x)),
+          alpha = 0.5,
+          size = 0.75) +
+        coord_fixed()
+    }
+  )
+
+wrap_plots(ps)
+```
+### PCA table
+```{r}
+ed_pca_covar %>% 
+  (function(x) {
+    DT::datatable(
+      x, 
+      extensions = 'Buttons',
+      options = list(
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      )) %>%
+      DT::formatSignif(
+        columns = which(map_lgl(x, is.numeric)),
+        digits = 3
+      )
+  })
+```
 
 ### Clustered heatmap at differential sites
 ```{r}
@@ -709,8 +812,19 @@ pheatmap::pheatmap(
 ```
 
 ## Parameters
-```{r params}
-print(params)
+```{r params, asis=TRUE}
+params %>% 
+  map_chr(function(x) {
+    if (is.character(x)) {
+      str_c('"', x, '"')
+    } else if (is.null(x)) {
+      "NULL"
+    } else {
+      as.character(x)
+    }
+  }) %>% 
+  enframe(name = 'Parameter', value = "Value") %>% 
+  knitr::kable()
 ```
 
 ```{r write_ouputs}

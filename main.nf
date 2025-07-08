@@ -95,17 +95,17 @@ params.analysis_threads  = 32
 params.edisetr_repo = "bahlolab/Edi-Set-Flow/edisetr"
 params.edisetr_ver  = "25.07-beta.1"
 
-params.report_params = [
-    model: 'quasibinomial', // GLM family to run, one of 'linear', 'arcsine', 'quasibinomial', 'binomial'
-    fixed_effects: 'sex,age,death', // covariates to include, comma sep
-    min_med_dp:  10,        // min median depth per site
-    min_med_vaf: 0.001,     // min median VAF per site
-    max_med_vaf: 1.0,       // max median VAF per site
-    adar_only: true,        // only A>I sites
-    grp_min_med_dp: 10,     // min median depth per group per site for GLM fit
-    grp_min_med_vaf: 0.001, // min median VAF per group per site for GLM fit
-    grp_max_med_vaf: 0.999 // max median VAF per group per site for GLM fit
-]
+
+
+params.report_model           = 'quasibinomial' // GLM family to run, one of 'linear', 'arcsine', 'quasibinomial', 'binomial'
+params.report_fixed_effects   = null     // covariates to include, comma sep
+params.report_min_med_dp      =  10      // min median depth per site
+params.report_min_med_vaf     = 0.001    // min median VAF per site
+params.report_max_med_vaf     = 1.0      // max median VAF per site
+params.report_adar_only       = true     // only A>I sites
+params.report_grp_min_med_dp  = 10       // min median depth per group per site for GLM fit
+params.report_grp_min_med_vaf = 0.001    // min median VAF per group per site for GLM fit
+params.report_grp_max_med_vaf = 0.999    // max median VAF per group per site for GLM fit
 
 include  { ESF } from './workflows/esf'
 

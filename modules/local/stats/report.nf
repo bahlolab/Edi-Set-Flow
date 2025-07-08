@@ -23,9 +23,10 @@ process REPORT {
 
     edisites_glob = edisites_shards[0].name.replaceFirst(/shard_[0-9]+/, 'shard_*')
 
-    qmd_params = params.report_params
+    qmd_params = params
+        .findAll { k, _v -> k.startsWith('report_') }
         .collect { k, v ->
-            "--execute-param $k:${v instanceof String ? "\"$v\"" : "$v"}"
+            "--execute-param ${k.replaceFirst(/report_/, '')}:${v instanceof String ? "\"$v\"" : "$v"}"
         }.join(" ")
 
     """
@@ -36,9 +37,9 @@ process REPORT {
     quarto render $report_qmd \\
         --output $report \\
         --execute-param edisites:"$edisites_glob" \\
-        --execute-param  metadata:"$sample_metadata" \\
-        --execute-param  output:"$prefix" \\
-        --execute-param  threads:$task.cpus \\
+        --execute-param metadata:"$sample_metadata" \\
+        --execute-param output:"$prefix" \\
+        --execute-param threads:$task.cpus \\
         $qmd_params
     """
 }
