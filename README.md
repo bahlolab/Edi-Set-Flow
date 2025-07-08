@@ -4,6 +4,9 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 ## Overview
 <p align="center"><img src="img/Edi-Set-Flow.png"/></p>
 
+## Example report
+- See here
+
 ## Getting Started
 
 ### 1) Requirements
@@ -15,12 +18,21 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 
 ### 2) Sample Manifest (CSV format)
 - **Required Columns:**
-    - "sample_id" (uniuqe identified for sample)
-    - "fastq_1"
-    - "fastq_2" (if paired-end)
-    - "group" (experimental condition of interest)
+    - "sample_id" - uniuqe identified for sample
+    - "fastq1" - path to first fastq file
+    - "fastq2" - path to second fastq file (if paired data)
+    - "group" - experimental condition of interest
 - **Optional Columns:**
     - Arbitrary covariates to be include in GLM as fixed effects
+    - Note: Columns with numbers will be interpreted as numeric by the GLM, otherwise they will be treated as factors
+- **Example:**
+     ```
+    sample_id,fastq1,fastq2,group,sex
+    SRR1311086,/PATH/TO/SRR1311086_1.fastq.gz,/PATH/TO/SRR1311086_2.fastq.gz,cortex,male,62
+    SRR1477080,/PATH/TO/SRR1477080_1.fastq.gz,/PATH/TO/SRR1477080_2.fastq.gz,cerebellum,female,63
+    SRR1085825,/PATH/TO/SRR1085825_1.fastq.gz,/PATH/TO/SRR1085825_2.fastq.gz,hippocampus,male,64
+    ...
+    ```
 
 ### 3) Running
 
@@ -28,7 +40,29 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 nextflow run bahlolab/Edi-Set-Flow \
     -r 25.07-beta.1 \
     -profile singularity \
+    -resume \
     --input sample_manifest.csv \
-    --fixed_effects sex,age \
+    --report_fixed_effects sex,age \
     --outdir esf_results
 ```
+
+## References
+> **Piechotta, M., Naarmann-de Vries, I. S., Wang, Q., Altmüller, J. & Dieterich, C. (2022)**  
+> _RNA modification mapping with JACUSA2._  
+> _Genome Biology_, **23**(1), 115.
+
+> **D’Addabbo, P., Cohen-Fultheim, R., Twersky, I., Fonzino, A., Silvestris, D. A., Prakash, A., … & Picardi, E. (2025)**  
+> _REDIportal: toward an integrated view of the A-to-I editing._  
+> _Nucleic Acids Research_, **53**(D1), D233–D242.
+
+> **McLaren, W., Gil, L., Hunt, S. E., Riat, H. S., Ritchie, G. R., Thormann, A., … & Cunningham, F. (2016)**  
+> _The Ensembl Variant Effect Predictor._  
+> _Genome Biology_, **17**, 1–14.
+
+> **da Veiga Leprevost, F., Grüning, B. A., Alves Aflitos, S., Röst, H. L., Uszkoreit, J., Barsnes, H., … & Perez-Riverol, Y. (2017)**  
+> _BioContainers: an open-source and community-driven framework for software standardization._  
+> _Bioinformatics_, **33**(16), 2580–2582.
+
+> **Di Tommaso, P., Chatzou, M., Floden, E. W., Barja, P. P., Palumbo, E. & Notredame, C. (2017)**  
+> _Nextflow enables reproducible computational workflows._  
+> _Nature Biotechnology_, **35**(4), 316–319.
