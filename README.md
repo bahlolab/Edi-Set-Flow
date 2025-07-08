@@ -4,9 +4,6 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 ## Overview
 <p align="center"><img src="img/Edi-Set-Flow.png"/></p>
 
-## Example report
-- See here
-
 ## Getting Started
 
 ### 1) Requirements
@@ -34,17 +31,32 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
     ...
     ```
 
-### 3) Running
+### 3) Run Edi-Set-Flow
+- **Example:**
+    ```{bash}
+    nextflow run bahlolab/Edi-Set-Flow \
+        -r 25.07-beta.1 \
+        -profile singularity \
+        -resume \
+        --input sample_manifest.csv \
+        --report_fixed_effects sex,age \
+        --outdir esf_results
+    ```
 
-```{bash}
-nextflow run bahlolab/Edi-Set-Flow \
-    -r 25.07-beta.1 \
-    -profile singularity \
-    -resume \
-    --input sample_manifest.csv \
-    --report_fixed_effects sex,age \
-    --outdir esf_results
-```
+## Output Files
+
+| File | Description |
+|------|-------------|
+| **`EdiSetFlow.report.html`** | Interactive Edi-Set-Flow HTML report &mdash; [see example (GTEx brain)](https://bahlolab.github.io/Edi-Set-Flow/) |
+| **`EdiSetFlow.sample_counts.csv.gz`** | Reference and alternate allele counts per site and sample |
+| **`EdiSetFlow.sample_summary.csv.gz`** | Summary statistics (median depth & editing rate) per sample |
+| **`EdiSetFlow.site_summary.csv.gz`** | Per-site statistics and annotation (e.g. gene, region, REDIPORTAL, consequence) |
+| **`EdiSetFlow.glm_summary.csv.gz`** | GLM coefficients, standard errors, and significance per site |
+| **`EdiSetFlow.glm_anova.csv.gz`** | ANOVA test results for each model term per site |
+| **`EdiSetFlow.glm_contrasts.csv.gz`** | Pairwise group comparisons for differential editing |
+| **`EdiSetFlow.glm_margins.csv.gz`** | Estimated marginal editing rates per group |
+| **`multiqc_report.html`** | MultiQC summary report (fastp, STAR, mosdepth, etc.) |
+
 
 ## References
 > **Piechotta, M., Naarmann-de Vries, I. S., Wang, Q., Altmüller, J. & Dieterich, C. (2022)**  
