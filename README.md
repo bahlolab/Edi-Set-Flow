@@ -24,10 +24,10 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
     - Note: Columns with numbers will be interpreted as numeric by the GLM, otherwise they will be treated as factors
 - **Example:**
      ```
-    sample_id,fastq1,fastq2,group,sex
-    SRR1311086,/PATH/TO/SRR1311086_1.fastq.gz,/PATH/TO/SRR1311086_2.fastq.gz,cortex,male,62
-    SRR1477080,/PATH/TO/SRR1477080_1.fastq.gz,/PATH/TO/SRR1477080_2.fastq.gz,cerebellum,female,63
-    SRR1085825,/PATH/TO/SRR1085825_1.fastq.gz,/PATH/TO/SRR1085825_2.fastq.gz,hippocampus,male,64
+    sample_id,fastq1,fastq2,group,sex,age
+    SRR1311086,/PATH/TO/SRR1311086_1.fastq.gz,/PATH/TO/SRR1311086_2.fastq.gz,cortex,male,50
+    SRR1477080,/PATH/TO/SRR1477080_1.fastq.gz,/PATH/TO/SRR1477080_2.fastq.gz,cerebellum,female,60
+    SRR1085825,/PATH/TO/SRR1085825_1.fastq.gz,/PATH/TO/SRR1085825_2.fastq.gz,hippocampus,male,50
     ...
     ```
 
