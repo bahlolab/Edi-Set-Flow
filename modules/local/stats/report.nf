@@ -1,7 +1,7 @@
 
 process REPORT {
     cpus   { params.analysis_threads  }
-    memory { params.analysis_threads * task.attempt + ' GB' }
+    memory { (4 + params.analysis_threads) * task.attempt + ' GB' }
     time   { 4 * task.attempt + ' h'  }
     label 'edisetr'
     publishDir "${params.outdir}/report",  mode: 'copy'

@@ -29,22 +29,6 @@ workflow SETUP {
         params.ref_fasta_url
     )
 
-    bwamem2_index = null
-    if (params.aligner == 'BWAMEM2') {
-        bwamem2_index = BWAMEM2_IDX(
-            REF_GENOME.out.map{ it[0] }
-        )
-    }
-    star_index = null
-    if (params.aligner == 'STAR') {
-        // star needs uncompressed gtf
-        STAR_IDX(
-            REF_GENOME.out.map{ it[0] },
-            GTF.out.uncompressed,
-        )
-        star_index = STAR_IDX.out.map { it[0].getParent() } // only need directory
-    }
-
     REDIPORTAL(
         params.rediportal_db_url
     )
@@ -82,6 +66,22 @@ workflow SETUP {
     GTF_TO_BED(
             GTF.out.uncompressed
     )
+
+    bwamem2_index = null
+    if (params.aligner == 'BWAMEM2') {
+        bwamem2_index = BWAMEM2_IDX(
+            REF_GENOME.out.map{ it[0] }
+        )
+    }
+    star_index = null
+    if (params.aligner == 'STAR') {
+        // star needs uncompressed gtf
+        STAR_IDX(
+            REF_GENOME.out.map{ it[0] },
+            GTF.out.uncompressed,
+        )
+        star_index = STAR_IDX.out.map { it[0].getParent() } // only need directory
+    }
 
     include_bed = params.include_bed ? 
         Channel.fromPath(params.include_bed, checkIfExists:true).first() :

@@ -77,8 +77,8 @@ params:
   edisites: null
   metadata: null
   fixed_effects: null
-  model: 'quasibinomial'
-  threads: 8
+  model: 'linear'
+  threads: 16
   # global filters
   min_med_dp:  10
   min_med_vaf: 0.001
@@ -128,7 +128,6 @@ stopifnot(
 ```{r read_edisites}
 threads <- min(params$threads, length(Sys.glob(params$edisites)))
 if (threads > 1) {
-  nt <- min()
   if (!exists('cluster') || !edisetr::cluster_check(cluster, stop=FALSE)) {
     cluster <- multidplyr::new_cluster(threads)
   }
@@ -593,7 +592,8 @@ bind_rows(
 ```{r marg_rate}
 marg_rate <-
   edifit$anova %>% 
-  filter(term == 'group', q_value_bh < 1e-5) %>% 
+  filter(term == 'group') %>% 
+  slice_min(order_by = p_value, n = 10000, with_ties = F) %>% 
   select(site_id) %>% 
   left_join(
     edifit$margins,
@@ -606,8 +606,13 @@ marg_rate <-
   column_to_rownames('site_id') %>% 
   t()
 
-group_clust <- hclust(dist(marg_rate), method = 'average')
-group_ord <- rev(group_clust$labels[group_clust$order])
+if (n_distinct(sample_metadata$group) > 2) {
+  group_clust <- hclust(dist(marg_rate), method = 'average')
+  group_ord <- rev(group_clust$labels[group_clust$order])
+} else {
+  group_ord <- unique(sample_metadata$group)
+}
+
 ```
 
 ### Top differentially edited sites, 1000 per VEP impact
@@ -718,7 +723,8 @@ if ('Rep. non-coding' %in% top_diffed_marg$type) {
 
 pca_data <-
   edifit$anova %>% 
-  filter(term == 'group', q_value_bh < 1e-5) %>% 
+  filter(term == 'group') %>% 
+  slice_min(order_by = p_value, n = 10000, with_ties = F) %>% 
   select(site_id) %>% 
   inner_join(
     edifit$margins %>% 
@@ -776,7 +782,7 @@ ps <-
 wrap_plots(ps)
 ```
 ### PCA table
-```{r}
+```{r pca_table}
 ed_pca_covar %>% 
   (function(x) {
     DT::datatable(
@@ -794,7 +800,7 @@ ed_pca_covar %>%
 ```
 
 ### Clustered heatmap at differential sites
-```{r}
+```{r pheatmap}
 ann <-
   edisites$summary %>% 
   filter(site_id %in% colnames(marg_rate)) %>% 
@@ -827,7 +833,7 @@ params %>%
   knitr::kable()
 ```
 
-```{r write_ouputs}
+```{r write_outputs}
 write_csv(
   edisites$summary,
   str_c(params$output, '.site_summary.csv.gz')
