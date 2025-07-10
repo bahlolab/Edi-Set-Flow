@@ -42,7 +42,11 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
         --report_fixed_effects sex,age \
         --outdir esf_results
     ```
-
+- **Notes**:
+    - Use `-profile apptainer` or `-profile docker` to use Apptainer or Docker
+    - Currently only the human GRCh38 reference and Gencode v48 gene annotations are supported
+    - Resources (e.g. reference genome) are downloaded and stored in directory 'esf_resources', use `--resource_dir /path/to/resource_dir` to override and share between runs
+    
 ## Output Files
 
 | File | Description |
