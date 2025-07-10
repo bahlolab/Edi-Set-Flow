@@ -8,6 +8,7 @@ fit_edisites <- function(
     fdr_bh     = TRUE,
     fdr_storey = FALSE,
     fdr_ash    = FALSE,
+    fdr_emp    = FALSE,
     permute_group = FALSE
 )
 {
@@ -23,6 +24,7 @@ fit_edisites <- function(
     rlang::is_bool(fdr_bh),
     rlang::is_bool(fdr_storey),
     rlang::is_bool(fdr_ash),
+    rlang::is_bool(fdr_emp),
     rlang::is_bool(permute_group)
   )
 
@@ -66,6 +68,7 @@ fit_edisites <- function(
     filter(depth > 0) %>%
     inner_join(covariates_df, by = 'sample_id', copy = TRUE) %>%
     group_by(site_id) %>%
+    filter(n_distinct(group) > 1) %>%
     (function(x) {
       if (permute_group) {
         mutate(x, group = sample(group))
@@ -77,7 +80,8 @@ fit_edisites <- function(
       result = edisetr:::fit_glm(
         data    = pick(n_alt, n_ref, all_of(!!fixed_effects)),
         formula = formula,
-        family  = family
+        family  = family,
+        .with_null = fdr_emp
       ),
     ) %>%
     ungroup() %>%
@@ -100,15 +104,14 @@ fit_edisites <- function(
   contrasts <-
     get_table('contrasts') %>%
     group_by(contrast) %>%
-    calc_fdr(bh = fdr_bh, storey = fdr_storey, ash = fdr_ash) %>%
+    calc_fdr(bh = fdr_bh, storey = fdr_storey, ash = fdr_ash, emp = fdr_emp) %>%
     ungroup()
 
   anova <-
     get_table('anova') %>%
+    filter(term != '<none>') %>%
     group_by(term) %>%
-    mutate(p_value = if_else(term == '<none>', 1, p_value)) %>%
-    calc_fdr(bh = fdr_bh, storey = fdr_storey, ash = fdr_ash) %>%
-    mutate(p_value = if_else(term == '<none>', NA_real_, p_value)) %>%
+    calc_fdr(bh = fdr_bh, storey = fdr_storey, ash = fdr_ash, emp = fdr_emp) %>%
     ungroup()
 
   rm(results); gc()
@@ -131,7 +134,7 @@ make_clean_names <- memoise::memoise(janitor::make_clean_names)
 
 #' @importFrom broom tidy
 #' @importFrom janitor clean_names
-fit_glm <- function(data, formula, family, return_margins = TRUE) {
+fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE) {
 
   # make sure no invariant factors present in formula
   for (v in all.vars(formula[[3]])) {
@@ -141,6 +144,10 @@ fit_glm <- function(data, formula, family, return_margins = TRUE) {
         formula <- update(formula, paste(". ~ . -", v))
       }
     }
+  }
+
+  if (.do_null) {
+    data$group <- sample(data$group)
   }
 
   fit <- glm(formula = formula, data = data, family = family)
@@ -169,14 +176,21 @@ fit_glm <- function(data, formula, family, return_margins = TRUE) {
       rename(p_value = pr_f)
   }
 
-  return(
+  if (.with_null) {
+    null_fit <- fit_glm(data, formula, family, .with_null = FALSE, .do_null = TRUE)
+    contrasts$null_p_value <- null_fit$contrasts[[1]]$p_value
+    anova$null_p_value     <- null_fit$anova[[1]]$p_value
+  }
+
+  result <-
     tibble(
       summary   = list(smry),
       contrasts = list(contrasts),
       margins   = list(margins),
       anova     = list(anova)
     )
-  )
+
+  return(result)
 }
 
 
@@ -200,7 +214,7 @@ calc_quasi <- function(X, name = 'quasibinomial', return_all = TRUE, clamp = TRU
   return(Y)
 }
 
-calc_fdr <- function(data, bh=FALSE, storey=FALSE, ash=FALSE) {
+calc_fdr <- function(data, bh=FALSE, storey=FALSE, ash=FALSE, emp=FALSE) {
   if (bh) {
     data <-
       mutate(
@@ -220,6 +234,13 @@ calc_fdr <- function(data, bh=FALSE, storey=FALSE, ash=FALSE) {
       mutate(
         data,
         q_value_ash   = ashr::ash(estimate, std_error, df = floor(median(df_residual)))$result$qvalue,
+      )
+  }
+  if (emp) {
+    data <-
+      mutate(
+        data,
+        q_value_emp   = empirical_qvalue(p_obs = p_value, p_null = null_p_value)
       )
   }
   return(data)
@@ -371,4 +392,35 @@ inverse_arcsine_margins <- function(df) {
   df$ci_upper   <- sin(orig_upper)^2
 
   df
+}
+
+empirical_qvalue <- function(p_obs, p_null) {
+  # sort observed
+  o_obs    <- order(p_obs)
+  p_sorted <- p_obs[o_obs]
+  n_obs    <- length(p_sorted)
+
+  # sort nulls
+  p_null_sorted <- sort(p_null)
+  n_null        <- length(p_null_sorted)
+
+  # raw empirical q
+  k     <- findInterval(p_sorted, p_null_sorted, rightmost.closed = TRUE)
+  q_raw <- (k / n_null) / (seq_len(n_obs) / n_obs)
+
+  # BH-style monotonic smoothing
+  q_smooth <- rev(cummin(rev(q_raw)))
+
+  # floor the *smoothed* q at the observed p
+  q_bounded <- pmax(q_smooth, p_sorted)
+
+  # optional: re-smooth to ensure monotonicity is preserved
+  q_final <- rev(cummin(rev(q_bounded)))
+
+  # cap at 1 and restore original order
+  q_final <- pmin(1, q_final)
+  out     <- numeric(n_obs)
+  out[o_obs] <- q_final
+
+  out
 }
