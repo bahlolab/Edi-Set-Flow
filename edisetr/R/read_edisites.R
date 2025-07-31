@@ -315,7 +315,7 @@ snp_detect <- function(
 
 
   which_gt <- !is.na(gt)
-  if (sum(which_gt) / length(gt) > snp_detect_p) {
+  if (replace_na(sum(which_gt) / length(gt) > snp_detect_p), FALSE) {
     cnt <- table(gt)
     if (length(cnt) == 3 & min(cnt) > snp_detect_n) {
       if (cor(gt[which_gt], vaf[which_gt]) > snp_detect_cor) {
