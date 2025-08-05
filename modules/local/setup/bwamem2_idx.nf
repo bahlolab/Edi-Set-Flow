@@ -4,7 +4,7 @@ process BWAMEM2_IDX {
     memory { 96 * task.attempt + ' GB' }
     time   { 8  * task.attempt + ' h'  }
     label 'bwamem2'
-    storeDir "${params.resource_dir}/$genome_dir"
+    storeDir "${params.resource_dir}/${params.genome}/$genome_dir"
 
     input:
     path(ref_fasta)

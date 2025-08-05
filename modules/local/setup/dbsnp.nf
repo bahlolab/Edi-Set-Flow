@@ -4,7 +4,7 @@ process DBSNP {
     memory { 2 * task.attempt + ' GB' }
     time   { 2 * task.attempt + ' h'  }
     label 'bigbedtobed'
-    storeDir "${params.resource_dir}"
+    storeDir "${params.resource_dir}/${params.genome}"
     
     input:
     val url

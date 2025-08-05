@@ -4,7 +4,7 @@ process REF_GENOME {
     memory { 4 * task.attempt + ' GB' }
     time   { 4 * task.attempt + ' h'  }
     label 'samtools'
-    storeDir "${params.resource_dir}"
+    storeDir "${params.resource_dir}/${params.genome}"
 
     input:
     val url

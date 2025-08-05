@@ -23,6 +23,8 @@ process SCATTER {
         'REDI_ACC',
         'REDI_REP_TYPE',
         'REDI_REP_ID',
+        'REP_CLASS', 
+        'REP_FAM',
         'REP_ID',
         // VEP fields
         'Consequence',

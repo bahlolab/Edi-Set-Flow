@@ -67,4 +67,16 @@ class WfEdiSetFlow {
     static ArrayList<Map> read_csv(Map par = [:], String filename) {
         read_delim(par, path(filename) , ',')
     }
+
+    static void preflight_checks(Map params) {
+        if (params.ref_fasta_url == null) {
+            throw new Exception("'params.ref_fasta_url' is not set. Did you forget to set a profile? (e.g. '-profile hg38')")
+        }
+        if (params.ucsc_rmsk_url == null) {
+            throw new Exception("'params.ucsc_rmsk_url' is not set. Did you forget to set a profile? (e.g. '-profile hg38')")
+        }
+        if (params.gtf_url == null) {
+            throw new Exception("'params.gtf_url' is not set. Did you forget to set a profile? (e.g. '-profile hg38')")
+        }
+    }
 }
