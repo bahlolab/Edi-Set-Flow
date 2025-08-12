@@ -4,7 +4,7 @@ process GTF {
     memory { 4 * task.attempt + ' GB' }
     time   { 4 * task.attempt + ' h'  }
     label 'bcftools'
-    storeDir "${params.resource_dir}"
+    storeDir "${params.resource_dir}/${params.genome}"
     /*
         - retrieve and indexe GTF
         - split into +/- strands for use with VEP in stranded modes

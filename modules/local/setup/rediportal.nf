@@ -4,13 +4,13 @@ process REDIPORTAL {
     memory { 4 * task.attempt + ' GB' }
     time   { 4 * task.attempt + ' h'  }
     label 'bcftools'
-    storeDir "${params.resource_dir}"
+    storeDir "${params.resource_dir}/${params.genome}"
     
     input:
     val url
 
     output:
-    tuple path(output), path("${output}.tbi"), path(header)    , emit: db
+    tuple path(output), path("${output}.tbi"), emit: db
     tuple path(bed), path("${bed}.tbi"), path(chroms), emit: bed
 
     script:

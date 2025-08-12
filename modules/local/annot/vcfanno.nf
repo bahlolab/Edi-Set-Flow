@@ -11,7 +11,7 @@ process VCFANNO {
     
     input:
     tuple path(vcf_in),   path(index_in)
-    tuple path(redi_bgz), path(redi_idx), val(redi_head)
+    tuple path(redi_bgz), path(redi_idx)
     tuple path(rep_bed),  path(rep_idx)
 
     output:
@@ -22,9 +22,9 @@ process VCFANNO {
         """\
         [[annotation]]
         file    = "$rep_bed"
-        columns = [4]
-        names   = ["REP_ID"]
-        ops     = ["self"]
+        columns = [4, 5, 6]
+        names   = ["REP_CLASS", "REP_FAM", "REP_ID"]
+        ops     = ["self", "self", "self"]
         """.stripIndent().replaceAll('\n', '\n    ')
     
     redi_block = 
@@ -34,7 +34,7 @@ process VCFANNO {
         columns = [5, 8, 10]
         names   = ["REDI_ACC", "REDI_REP_TYPE", "REDI_REP_ID"]
         ops     = ["self", "self", "self"]
-        """.stripIndent().replaceAll('\n', '\n    ')
+        """.stripIndent().replaceAll('\n', '\n    ') 
 
     output  = vcf_in.name.replaceFirst(/.vcf\.gz$/, ".vcfanno.vcf.gz")
 

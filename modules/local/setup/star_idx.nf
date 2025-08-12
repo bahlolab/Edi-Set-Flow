@@ -4,7 +4,7 @@ process STAR_IDX {
     memory { 48 * task.attempt + ' GB' }
     time   { 8  * task.attempt + ' h'  }
     label 'star'
-    storeDir "${params.resource_dir}"
+    storeDir "${params.resource_dir}/${params.genome}"
 
     input:
     path ref_fasta
