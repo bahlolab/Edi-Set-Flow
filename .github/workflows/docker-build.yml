@@ -3,16 +3,12 @@ name: Build and publish Docker image
 on:
   push:
     tags:
-      - '*'              # run on any tag push
-  workflow_dispatch:     # allow manual trigger
-      inputs:
-        image_tag:
-          description: 'Tag for the Docker image'
-          required: true
-
-env:
-  IMAGE_NAME: ${{ github.repository }}
-  REGISTRY: ghcr.io
+      - '*'                # run on any tag push
+  workflow_dispatch:       # allow manual trigger
+    inputs:
+      image_tag:
+        description: 'Docker image tag (e.g., v1.2.3)'
+        required: true
 
 jobs:
   build:
@@ -20,7 +16,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -40,4 +35,4 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository }}:${{ github.event.inputs.image_tag || github.ref_name }}
+          tags: ghcr.io/${{ toLower(github.repository) }}:${{ inputs.image_tag || github.ref_name }}
