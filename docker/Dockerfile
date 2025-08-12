@@ -12,3 +12,7 @@ RUN install2.r --error --skipinstalled \
     DT \
     ggrepel \
     pheatmap
+
+COPY edisetr /tmp/edisetr
+
+RUN R -q -e "remotes::install_local('/tmp/edisetr', dependencies = TRUE, upgrade = 'never', build_vignettes = FALSE)"
