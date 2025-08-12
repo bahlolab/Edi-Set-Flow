@@ -35,4 +35,4 @@ jobs:
           file: ./docker/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ toLower(github.repository) }}:${{ inputs.image_tag || github.ref_name }}
+          tags: ghcr.io/bahlolab/edi-set-flow:${{ inputs.image_tag || github.ref_name }}
