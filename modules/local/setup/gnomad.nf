@@ -4,7 +4,7 @@ process GNOMAD {
     memory { 2 * task.attempt + ' GB' }
     time   { 12 * task.attempt + ' h' }
     tag "chr$chr"
-    storeDir "${params.resource_dir}/gnomAD"
+    storeDir "${params.resource_dir}/${params.genome}/gnomAD"
 
     input:
     val url_pattern

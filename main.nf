@@ -13,11 +13,13 @@ params.outdir = 'output'
 params.publish = ['bam', 'sample_bcf', 'annot_vcf', 'report', 'diff_sites']
 // run setup to download and generate required resources first
 params.resource_dir      = 'esf_resources'
-// reference resources
-params.ref_fasta_url     = 'https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz'
-params.repeats_bed_url   = 'https://hgdownload.soe.ucsc.edu/hubs/RepeatBrowser2020/hg38/hg38_2020_rmsk.bed'
-params.gtf_url           = 'https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_48/gencode.v48.annotation.gtf.gz'
-params.rediportal_db_url = 'http://srv00.recas.ba.infn.it/webshare/ATLAS/download/TABLE1_hg38_v3.txt.gz'
+
+// reference resources (set by -profile hg38/mm10/mm39)
+params.genome          = 'generic'
+params.ref_fasta_url   = null // required
+params.ucsc_rmsk_url   = null // required
+params.gtf_url         = null // required
+params.rediportal_url  = null // optional
 
 /* ---- regions to include (union) ---*/
 params.include_gtf        = true
@@ -28,15 +30,18 @@ params.include_bed        = null
 params.include_pad        = 100
 
 /* ---- regions to exclude (setdiff) ---*/
-// exclude common variation from gnomaAD (v4.1)
+
+// exclude common variation from gnomaAD (set by -profile hg38)
 params.exclude_gnomad      = true
-params.gnomad_url_pattern  = "https://storage.googleapis.com/gcp-public-data--gnomad/release/<VER>/vcf/joint/gnomad.joint.v<VER>.sites.chr<CHR>.vcf.bgz"
-params.gnomad_ver          = '4.1'
-params.gnomad_chr          = (1..22) + ['X','Y']
-params.gnomad_min_af       = 0.001
-// exclude common variation from dbSNP(v153)
+params.gnomad_url_pattern  = null
+params.gnomad_ver          = null
+params.gnomad_chr          = null
+params.gnomad_min_af       = null
+
+// exclude common variation from dbSNP (set by -profile hg38)
 params.exclude_dbsnp       = true
-params.dbsnp_url           = 'http://hgdownload.soe.ucsc.edu/gbdb/hg38/snp/dbSnp153Common.bb'
+params.dbsnp_url           = null
+
 // exclude custom regions - should be gzipped
 params.exclude_bed         = null
 
@@ -50,7 +55,6 @@ params.aligner = 'BWAMEM2'
 params.drop_secondary     = true
 params.drop_supplementary = false
 params.drop_duplicates    = true
-
 
 /* ----------- Edi-site detection ------------------*/
 // min mapq used by JACUSA2
@@ -89,12 +93,7 @@ params.count_filter = [
 // number of genomic intervals to parallelise across for site merging and VEP
 params.n_intervals       = 10
 // number of threads for final report / GLM fitting
-params.analysis_threads  = 32
-
-// dev params
-params.edisetr_repo = "bahlolab/Edi-Set-Flow/edisetr"
-params.edisetr_ver  = "25.07-beta.2"
-
+params.analysis_threads  = 16
 
 
 params.report_model           = 'quasibinomial' // GLM family to run, one of 'linear', 'arcsine', 'quasibinomial', 'binomial'
@@ -107,9 +106,15 @@ params.report_grp_min_med_dp  = 10       // min median depth per group per site 
 params.report_grp_min_med_vaf = 0.001    // min median VAF per group per site for GLM fit
 params.report_grp_max_med_vaf = 0.999    // max median VAF per group per site for GLM fit
 
+// force local R package install (useful for dev)
+params.install_edisetr        = false         
+
 include  { ESF } from './workflows/esf'
 
 workflow { 
+
+    WfEdiSetFlow.preflight_checks(params as Map)
+
     log.info(
 """\
 \u001B[1;34m ___ ___ ___  \u001B[1;32m ___ ___ _____  \u001B[1;33m ___ _    _____      __

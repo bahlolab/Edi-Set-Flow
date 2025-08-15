@@ -81,7 +81,7 @@ fit_edisites <- function(
         data    = pick(n_alt, n_ref, all_of(!!fixed_effects)),
         formula = formula,
         family  = family,
-        .with_null = fdr_emp
+        .with_null = !!fdr_emp
       ),
     ) %>%
     ungroup() %>%

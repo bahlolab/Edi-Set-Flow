@@ -4,19 +4,26 @@ process INSTALL_EDISETR {
     memory { 2 * task.attempt + ' GB' }
     time   { 1 * task.attempt + ' h'  }
     label 'edisetr'
-    storeDir "${params.resource_dir}"
+    tag "$hash"
     
     input:
-    val(repo)
-    val(ver)
+    tuple path(path), val(hash)
 
     output:
     path(output)
 
     script:
-    output = "edisetr-$ver-lib"
+    output = "edisetr-$hash-lib"
     """
     mkdir $output
-    install_edisetr.R $repo@$ver $output $task.cpus
+    R -q -e \\
+        "remotes::install_local(
+            path = '$path',
+            lib = '$output',
+            force = TRUE,
+            dependencies = TRUE,
+            upgrade = 'never',
+            build_vignettes = FALSE            
+         )"
     """
 }

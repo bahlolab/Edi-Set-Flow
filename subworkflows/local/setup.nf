@@ -20,32 +20,43 @@ workflow SETUP {
     */
     main:
 
-    INSTALL_EDISETR(
-        params.edisetr_repo,
-        params.edisetr_ver
-    )
+    if (params.install_edisetr) {
+        def hash = "git rev-parse --short HEAD".execute(null, file("$projectDir/edisetr").toFile()).text.trim()
+        INSTALL_EDISETR(
+            Channel.value([file("$projectDir/edisetr"), hash])
+        )
+        edisetr_lib = INSTALL_EDISETR.out
+    } else {
+        edisetr_lib = Channel.value(file("$projectDir/misc/empty"))
+    }
+    
 
     REF_GENOME(
         params.ref_fasta_url
     )
 
-    REDIPORTAL(
-        params.rediportal_db_url
-    )
-    rediportal_db = REDIPORTAL.out.db.map { db, idx, head -> [db, idx, head.text.strip().split('\t').toList() ] }
-
+    rediportal_db  = Channel.value([file("$projectDir/misc/redip_empty.gz"), file("$projectDir/misc/redip_empty.gz.tbi")])
+    rediportal_bed = null
+    if (params.rediportal_url) {
+        REDIPORTAL(
+            params.rediportal_url
+        )
+        rediportal_db  = REDIPORTAL.out.db
+        rediportal_bed = REDIPORTAL.out.bed
+    }
+    
     exclude_bed = params.exclude_bed ? 
         Channel.fromPath(params.exclude_bed, checkIfExists:true).first() :
         Channel.empty()
 
-    if (params.exclude_dbsnp) {
+    if (params.exclude_dbsnp && params.dbsnp_url) {
         DBSNP(
             params.dbsnp_url
         )
         exclude_bed = exclude_bed.concat(DBSNP.out)
     }
 
-    if (params.exclude_gnomad) {
+    if (params.exclude_gnomad && params.gnomad_url_pattern) {
         GNOMAD(
             params.gnomad_url_pattern,
             params.gnomad_ver,
@@ -56,7 +67,7 @@ workflow SETUP {
     }
 
     REPEATS(
-        params.repeats_bed_url
+        params.ucsc_rmsk_url
     )
     
     GTF(
@@ -91,7 +102,7 @@ workflow SETUP {
         include_bed = include_bed.concat(GTF_TO_BED.out.flat_bed)
     }
 
-    if (params.include_rediportal) {
+    if (params.include_rediportal && params.rediportal_url) {
         include_bed = include_bed.concat(REDIPORTAL.out.bed.map{ it[0] })
     }
 
@@ -120,7 +131,7 @@ workflow SETUP {
     ref_genome       = REF_GENOME.out
     repeats          = REPEATS.out
     rediportal_db    = rediportal_db
-    rediportal_bed   = REDIPORTAL.out.bed
+    rediportal_bed   = rediportal_bed  
     gtf_tabixed      = GTF.out.tabixed
     gtf_uncompressed = GTF.out.uncompressed
     star_index       = star_index
@@ -128,7 +139,7 @@ workflow SETUP {
     target_regions   = TARGET_REGIONS.out
     intervals        = intervals
     prot_cod_bed     = GTF_TO_BED.out.prot_cod_bed
-    edisetr_lib      = INSTALL_EDISETR.out
+    edisetr_lib      = edisetr_lib
 }
 
 

@@ -37,17 +37,20 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 - **Example:**
     ```{bash}
     nextflow run bahlolab/Edi-Set-Flow \
-        -r 25.07-beta.2 \
-        -profile singularity \
+        -revision 25.08-beta.1\
+        -profile hg38,singularity \
         -resume \
         --input sample_manifest.csv \
         --report_fixed_effects sex,age \
         --outdir esf_results
     ```
 - **Notes**:
-    - Use `-profile apptainer` or `-profile docker` to use Apptainer or Docker
-    - Currently only the human GRCh38 reference and Gencode v48 gene annotations are supported
+    - **Profiles**:
+        - **Genome**: 'hg38', 'mm10' or 'mm39' are supported. Others genome builds require custom specification, see `nextflow.config`
+        - **Container Engine**: 'singularity', 'apptainer', or 'docker'
+        - **Examples**: `-profile hg38,singularity` or `-profile mm10,docker`
     - Resources (e.g. reference genome) are downloaded and stored in directory 'esf_resources', use `--resource_dir /path/to/resource_dir` to override and share between runs
+    - REDIPortal annotation is only supported for 'hg38'
     
 ## Output Files
 

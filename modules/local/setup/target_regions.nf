@@ -15,28 +15,42 @@ process TARGET_REGIONS {
     script:
     output = "targets.bed.gz"
     range = params.include_pad ? "--range -$params.include_pad:$params.include_pad" : ''
-    """
-    bgzip -cd --threads $task.cpus $include_bed \\
-        | sort-bed - \\
-        | bedops $range --merge - \\
-        > include_bed &
     
-    bgzip -cd --threads $task.cpus $exclude_bed \\
-        | sort-bed - \\
-        | bedops --merge - \\
-        > exclude_bed
-       
-    wait
+    exclude_bed.size() == 0 ?
+        """
+        bgzip -cd --threads $task.cpus $include_bed \\
+            | sort-bed - \\
+            | bedops $range --merge - \\
+            | bgzip --threads $task.cpus > $output
+        
+        tabix -0 -p bed $output
 
-    bedops --difference include_bed exclude_bed \\
-        | bgzip --threads $task.cpus > $output
+        bgzip --threads $task.cpus -cd $output \\
+            | cut -f1 \\
+            | uniq > chrom_list.txt
+        """ :
+        """
+        bgzip -cd --threads $task.cpus $include_bed \\
+            | sort-bed - \\
+            | bedops $range --merge - \\
+            > include_bed &
+        
+        bgzip -cd --threads $task.cpus $exclude_bed \\
+            | sort-bed - \\
+            | bedops --merge - \\
+            > exclude_bed
+           
+        wait
 
-    rm include_bed exclude_bed
-    
-    tabix -0 -p bed $output
+        bedops --difference include_bed exclude_bed \\
+            | bgzip --threads $task.cpus > $output
 
-    bgzip --threads $task.cpus -cd $output \\
-        | cut -f1 \\
-        | uniq > chrom_list.txt
-    """
+        rm include_bed exclude_bed
+        
+        tabix -0 -p bed $output
+
+        bgzip --threads $task.cpus -cd $output \\
+            | cut -f1 \\
+            | uniq > chrom_list.txt
+        """
 }
