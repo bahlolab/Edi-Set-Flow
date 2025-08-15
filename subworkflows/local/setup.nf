@@ -20,10 +20,16 @@ workflow SETUP {
     */
     main:
 
-    INSTALL_EDISETR(
-        params.edisetr_repo,
-        params.edisetr_ver
-    )
+    if (params.install_edisetr) {
+        def hash = "git rev-parse --short HEAD".execute(null, file("$projectDir/edisetr").toFile()).text.trim()
+        INSTALL_EDISETR(
+            Channel.value([file("$projectDir/edisetr"), hash])
+        )
+        edisetr_lib = INSTALL_EDISETR.out
+    } else {
+        edisetr_lib = Channel.value(file("$projectDir/misc/empty"))
+    }
+    
 
     REF_GENOME(
         params.ref_fasta_url
@@ -133,7 +139,7 @@ workflow SETUP {
     target_regions   = TARGET_REGIONS.out
     intervals        = intervals
     prot_cod_bed     = GTF_TO_BED.out.prot_cod_bed
-    edisetr_lib      = INSTALL_EDISETR.out
+    edisetr_lib      = edisetr_lib
 }
 
 

@@ -123,6 +123,8 @@ stopifnot(
   "group"     %in% colnames(sample_metadata),
   is.null(fixed_effects) || all(fixed_effects%in% colnames(sample_metadata))
 )
+# ensure group is a character for GLM fitting
+sample_metadata <- mutate(sample_metadata, group = as.character(group))
 ```
 
 ```{r read_edisites}
@@ -425,7 +427,7 @@ covariates_df <-
     select(sample_id, group, all_of(fixed_effects))
 
 edifit <- fit_edisites(
-  counts_df     = edisites$counts ,
+  counts_df     = edisites$counts,
   covariates_df = covariates_df,
   fixed_effects = fixed_effects,
   model         = params$model,
@@ -571,11 +573,6 @@ bind_rows(
     breaks = manh_labels$mid,
     minor_breaks = NULL,
     labels = manh_labels$chrom
-  ) +
-  scale_y_continuous(
-    breaks = seq(-100, 100, by = 50),
-    minor_breaks = NULL,
-    labels = abs(seq(-100, 100, by = 50))
   ) +
   geom_hline(yintercept = 0) +
   theme(

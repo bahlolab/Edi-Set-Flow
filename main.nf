@@ -93,11 +93,7 @@ params.count_filter = [
 // number of genomic intervals to parallelise across for site merging and VEP
 params.n_intervals       = 10
 // number of threads for final report / GLM fitting
-params.analysis_threads  = 32
-
-// dev params
-params.edisetr_repo = "bahlolab/Edi-Set-Flow/edisetr"
-params.edisetr_ver  = "25.07-beta.2"
+params.analysis_threads  = 16
 
 
 params.report_model           = 'quasibinomial' // GLM family to run, one of 'linear', 'arcsine', 'quasibinomial', 'binomial'
@@ -109,6 +105,9 @@ params.report_adar_only       = true     // only A>I sites
 params.report_grp_min_med_dp  = 10       // min median depth per group per site for GLM fit
 params.report_grp_min_med_vaf = 0.001    // min median VAF per group per site for GLM fit
 params.report_grp_max_med_vaf = 0.999    // max median VAF per group per site for GLM fit
+
+// force local R package install (useful for dev)
+params.install_edisetr        = false         
 
 include  { ESF } from './workflows/esf'
 
