@@ -43,13 +43,16 @@ process REDIPORTAL {
     
     tabix -@ $task.cpus -s1 -b2 -e2 -c '#' $output
 
+    tabix -l $output > $chroms
+
+    missing=\$(for chr in \$(seq 1 22) X Y; do grep -qx "chr\${chr}" $chroms || echo "chr\${chr}"; done)
+    [ -z "\$missing" ] || { echo "ERROR: missing chromosomes: \$missing" >&2; exit 1; }
+
     bgzip -@ $task.cpus -cd $output \\
         | tail -n+2 \\
         | awk -F'\\t' 'BEGIN{OFS=FS}{print \$1, \$2-1, \$2, \$1 "_" \$2 "_" \$3 "_" \$4 ":" \$6, ".", \$6 }' \\
         | bgzip -@ $task.cpus > $bed
 
     tabix --threads $task.cpus -0 -p bed $bed
-
-    bgzip -@ $task.cpus -cd $bed | cut -f1 | uniq > $chroms
     """
 }
