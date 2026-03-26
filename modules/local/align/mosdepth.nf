@@ -1,7 +1,7 @@
 
 process MOSDEPTH {
     cpus     2
-    memory { 4 * task.attempt + ' GB' }
+    memory { 6 * task.attempt + ' GB' }
     time   { 2 * task.attempt + ' h'  }
     label  'mosdepth'
     tag    "$sample"
