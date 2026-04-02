@@ -1,6 +1,8 @@
 
 // run checks etc here
 
+include { FASTERQDUMP    } from '../modules/local/fasterqdump.nf'
+
 /* ---------------- IMPORT WORKFLOWS ---------------- */
 include { SETUP          } from '../subworkflows/local/setup.nf'
 include { ALIGN          } from '../subworkflows/local/align.nf'
@@ -20,10 +22,20 @@ workflow ESF {
         .fromList(input)
         .filter { it.bam == null } // exclude samples which already have bams
         .filter { it.fastq1 != null } // TODO - raise error if sample has no inputs
-        .map { 
-            [ it.sample_id,  [file(it.fastq1, checkIfExists: true)] + 
-              (it.fastq2 == null ? [] : [file(it.fastq2, checkIfExists: true)]) ]
-        }
+        .map { [ it.sample_id, [it.fastq1] + (it.fastq2 == null ? [] : [it.fastq2]) ] }
+        .map { [it[0], it[1].collect { file(it, checkIfExists: true) }] }
+
+    if (input.any { it.run_accession != null }) {
+        FASTERQDUMP(
+            Channel
+                .fromList(input)
+                .filter { it.bam           == null }
+                .filter { it.fastq         == null }
+                .filter { it.run_accession != null }
+                .map { [it.sample_id, it.run_accession] }
+        )
+        fastqs = fastqs.mix(FASTERQDUMP.out)
+    }
 
     // bams = Channel
     //     .fromList(input)

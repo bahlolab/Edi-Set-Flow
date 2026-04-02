@@ -44,11 +44,12 @@ read_edisites <-  function(
     snp_detect_n    = 3,
     snp_detect_p    = 0.70,
     snp_detect_dp   = 10,
+    expand_glob     = TRUE,
     .n_max          = Inf
 )
 {
 
-  if (is_scalar_character(sites_files) && str_detect(sites_files, '\\*')) {
+  if (is_scalar_character(sites_files) && expand_glob) {
     sites_files <- Sys.glob(sites_files)
   }
 
