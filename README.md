@@ -4,13 +4,13 @@ A robust pipeline for RNA editing detection and differential analysis in bulk RN
 > This is a beta release - please try it and report any issues here
 
 ## Overview
-<p align="center"><img src="img/Edi-Set-Flow.png"/></p>
+<p align="center"><img src="img/Edi-Set-Flow.png" width="700"/></p>
 
 Edi-Set-Flow runs in five stages:
 
 1. **Setup** — Downloads reference genome, GTF, REDIportal (hg38 only), and common variant exclusion lists (dbSNP/gnomAD), then builds aligner indices. All resources are cached in `esf_resources/` and reused across runs.
 2. **Alignment** — Optionally trims reads with fastp, aligns to the reference (STAR or BWA-MEM2), filters BAMs, estimates per-sample coverage with mosdepth, and automatically detects library strandedness.
-3. **Site Discovery & Counting** — JACUSA2 scans for candidate A-to-I (A>G) RNA editing sites in two passes: a loose discovery pass to identify candidate sites, followed by a stricter counting pass to quantify allele counts. Both passes run in parallel across genomic intervals.
+3. **Site Discovery & Counting** — JACUSA2 scans for candidate A-to-I (A>G) RNA editing sites in two passes: a loose discovery pass to identify candidate sites, followed by a stricter counting pass to quantify allele counts. Both passes run in parallel across samples.
 4. **Annotation** — Ensembl VEP annotates variant consequences (gene, transcript, impact); vcfanno adds REDIportal catalog membership and repeat-masker context.
 5. **Reporting & Statistics** — MultiQC aggregates alignment and QC metrics; the companion `edisetr` R package fits per-site GLMs across experimental groups and generates an interactive HTML report.
 
@@ -175,6 +175,16 @@ export NXF_SINGULARITY_CACHEDIR=/shared/path/singularity_cache
 **Sharing Reference Resources**
 
 Pass `--resource_dir /shared/path/esf_resources` to point all runs at a shared reference cache, avoiding repeated downloads of the genome, GTF, and annotation databases.
+
+**Debugging Failed Runs**
+
+- **Pipeline-level errors** (e.g. invalid parameters, missing files, config problems) are logged to **`.nextflow.log`** in your working directory. Check the bottom of this file first.
+- **Task-level errors** (e.g. a tool crashing mid-run) are captured in the task's `work/` subdirectory. Nextflow prints the work directory path in the error output — navigate there and inspect:
+    - `.command.sh` — the exact shell command that was run
+    - `.command.log` — stdout/stderr from the task
+    - `.exitcode` — the exit code
+
+    Common fixes are increasing the CPU/memory or walltime allocation for the failing process (see Overriding CPU / Memory above).
 
 **Getting Help**
 
