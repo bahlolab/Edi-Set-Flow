@@ -1,10 +1,86 @@
 
+#' Fit per-site differential RNA editing models
+#'
+#' Fits a generalised linear model per editing site to test for differences in
+#' editing rate across experimental groups. Each site is modelled independently
+#' using `group` plus any `fixed_effects` as predictors, and the response is
+#' derived from the per-sample alternate/reference allele counts. When
+#' `counts_df` is a \pkg{multidplyr} party data frame the per-site fits are
+#' distributed across the cluster's workers.
+#'
+#' @param counts_df A data frame (or \pkg{multidplyr} `party_df`) of per-sample
+#'   allele counts, one row per site/sample, with at least the columns
+#'   `site_id`, `sample_id`, `n_alt` (alternate/edited allele count) and
+#'   `n_ref` (reference allele count). A `depth` column (`n_alt + n_ref`) is
+#'   used to drop zero-depth observations. An optional `weights` column is
+#'   passed through as GLM observation weights (ignored for the `*-ebbr` models,
+#'   which derive their own weights).
+#' @param covariates_df A data frame of per-sample covariates, one row per
+#'   `sample_id`. Must contain `sample_id`, a `group` column, and any columns
+#'   named in `fixed_effects`. Joined to `counts_df` by `sample_id`.
+#' @param fixed_effects Character vector of additional covariate columns (from
+#'   `covariates_df`) to include as fixed effects alongside `group`. Defaults to
+#'   none.
+#' @param model The model family / response transform, one of:
+#'   \describe{
+#'     \item{`quasibinomial`}{Quasibinomial logit GLM on `cbind(n_alt, n_ref)`
+#'       (accounts for overdispersion).}
+#'     \item{`binomial`}{Binomial logit GLM on `cbind(n_alt, n_ref)`.}
+#'     \item{`linear`}{Gaussian (identity) model on the raw editing proportion
+#'       `n_alt / (n_alt + n_ref)`.}
+#'     \item{`arcsine`}{Gaussian model on the arcsine-square-root transformed
+#'       proportion; margins are back-transformed to the rate scale.}
+#'     \item{`linear-ebbr`}{As `linear`, but the response is the per-site
+#'       empirical-Bayes Beta-binomial posterior mean (see
+#'       `inverse_variance_weighting`). Requires the optional \pkg{ebbr}
+#'       package.}
+#'     \item{`arcsine-ebbr`}{As `arcsine`, but on the empirical-Bayes posterior
+#'       mean. Requires the optional \pkg{ebbr} package.}
+#'   }
+#' @param inverse_variance_weighting Logical; for the `*-ebbr` models, weight
+#'   each observation by the inverse of its Beta-binomial posterior variance so
+#'   noisy low-depth samples contribute less. Default `TRUE`. Has no effect for
+#'   the non-`ebbr` models.
+#' @param weight_cap_q Numeric quantile in (0, 1) used to cap the per-site
+#'   inverse-variance weights at `median(w) + mad(w) * qnorm(weight_cap_q)`,
+#'   preventing a single very-high-depth sample from dominating a site's fit.
+#'   Set to `NULL` or `NA` to disable capping. Default `0.95`. Only relevant
+#'   when `inverse_variance_weighting = TRUE`.
+#' @param fdr_bh Logical; add Benjamini-Hochberg `q_value_bh` to the contrasts
+#'   and ANOVA tables. Default `TRUE`.
+#' @param fdr_storey Logical; add Storey `q_value_storey` (requires
+#'   \pkg{qvalue}). Default `FALSE`.
+#' @param fdr_ash Logical; add adaptive-shrinkage `q_value_ash` (requires
+#'   \pkg{ashr}). Default `FALSE`.
+#' @param fdr_emp Logical; add an empirical `q_value_emp` computed against a
+#'   null obtained by permuting `group` within each site. Doubles the fitting
+#'   work. Default `FALSE`.
+#' @param permute_group Logical; permute the `group` labels within each site
+#'   before fitting, yielding a global null distribution (for diagnostics).
+#'   Default `FALSE`.
+#'
+#' @return A named list of tidy data frames, each keyed by `site_id`:
+#'   \describe{
+#'     \item{`summary`}{Per-term model coefficient estimates.}
+#'     \item{`margins`}{Estimated marginal means per `group` level (on the
+#'       response scale; back-transformed for the arcsine models), with
+#'       confidence intervals.}
+#'     \item{`contrasts`}{Pairwise between-group contrasts with standard errors,
+#'       test statistics, p-values and requested FDR columns.}
+#'     \item{`anova`}{Per-term drop-one tests with p-values and requested FDR
+#'       columns.}
+#'   }
+#'
+#' @seealso [read_edisites()] for producing `counts_df`.
 #' @export
 fit_edisites <- function(
     counts_df,
     covariates_df,
     fixed_effects = character(),
-    model = c('quasibinomial', 'binomial', 'linear', 'arcsine'),
+    model = c('quasibinomial', 'binomial', 'linear', 'arcsine',
+              'linear-ebbr', 'arcsine-ebbr'),
+    inverse_variance_weighting = TRUE,
+    weight_cap_q               = 0.95,
     fdr_bh     = TRUE,
     fdr_storey = FALSE,
     fdr_ash    = FALSE,
@@ -14,6 +90,14 @@ fit_edisites <- function(
 {
 
   model     <- match.arg(model)
+
+  # The '*-ebbr' models rely on the optional 'ebbr' package (GitHub-only), so
+  # fail early with install instructions rather than deep inside a cluster call.
+  if (model %in% c('linear-ebbr', 'arcsine-ebbr') &&
+      !requireNamespace('ebbr', quietly = TRUE)) {
+    stop("model = '", model, "' requires the 'ebbr' package, which is not installed.\n",
+         "Install it with: remotes::install_github('dgrtwo/ebbr')", call. = FALSE)
+  }
 
   stopifnot(
     is.data.frame(counts_df) || inherits(counts_df, 'multidplyr_party_df')
@@ -25,6 +109,7 @@ fit_edisites <- function(
     all(c("site_id", "sample_id", "n_alt", "n_ref") %in% counts_cols),
     all(fixed_effects %in% colnames(covariates_df)),
     is.character(model) && length(model) > 0,
+    rlang::is_bool(inverse_variance_weighting),
     rlang::is_bool(fdr_bh),
     rlang::is_bool(fdr_storey),
     rlang::is_bool(fdr_ash),
@@ -62,6 +147,20 @@ fit_edisites <- function(
       response = "asin(sqrt(n_alt / (n_alt + n_ref)))",
       termlabels = fixed_effects
     )
+  } else if (model == 'linear-ebbr') {
+    # linear model on the empirical-Bayes posterior mean (see eb_shrink_site)
+    family  <- gaussian(link = 'identity')
+    formula <- reformulate(
+      response = "post_mean",
+      termlabels = fixed_effects
+    )
+  } else if (model == 'arcsine-ebbr') {
+    # arcsine model on the empirical-Bayes posterior mean (see eb_shrink_site)
+    family  <- gaussian(link = 'identity')
+    formula <- reformulate(
+      response = "asin(sqrt(post_mean))",
+      termlabels = fixed_effects
+    )
   }
   if (inherits(counts_df, 'multidplyr_party_df')) {
     cluster_assign(
@@ -89,7 +188,10 @@ fit_edisites <- function(
         data    = pick(n_alt, n_ref, all_of(!!fixed_effects), any_of('weights')),
         formula = formula,
         family  = family,
-        .with_null = !!fdr_emp
+        .with_null    = !!fdr_emp,
+        .ebbr         = !!(model %in% c('linear-ebbr', 'arcsine-ebbr')),
+        .iv_weighting = !!inverse_variance_weighting,
+        .cap_q        = !!weight_cap_q
       ),
     ) %>%
     ungroup() %>%
@@ -105,7 +207,7 @@ fit_edisites <- function(
   summary   <- get_table('summary')
   margins   <- get_table('margins')
 
-  if (model == 'arcsine') {
+  if (model %in% c('arcsine', 'arcsine-ebbr')) {
     margins <- inverse_arcsine_margins(margins)
   }
 
@@ -142,7 +244,18 @@ make_clean_names <- memoise::memoise(janitor::make_clean_names)
 
 #' @importFrom broom tidy
 #' @importFrom janitor clean_names
-fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE) {
+fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE,
+                    .ebbr = FALSE, .iv_weighting = TRUE, .cap_q = 0.95) {
+
+  # empirical-Bayes shrinkage for the '*-ebbr' models: replace raw per-sample
+  # rates with the Beta-binomial posterior mean and (optionally) precision
+  # weights, both derived per site. Done before the invariant-factor check so
+  # the post_mean response column exists when glm() evaluates the formula.
+  if (.ebbr) {
+    eb <- eb_shrink_site(data$n_alt, data$n_ref, .iv_weighting, .cap_q)
+    data$post_mean <- eb$post_mean
+    data$weights   <- eb$weights
+  }
 
   # make sure no invariant factors present in formula
   for (v in all.vars(formula[[3]])) {
@@ -203,6 +316,44 @@ fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE)
     )
 
   return(result)
+}
+
+# Empirical-Bayes shrinkage of a single site's per-sample editing rates.
+# Fits a Beta(alpha0, beta0) prior across this site's samples (borrowing strength
+# across samples measured at the same site) via ebbr, then returns each sample's
+# Beta-binomial posterior:
+#   alpha_i = n_alt_i + alpha0,  beta_i = n_ref_i + beta0
+#   post_mean_i = alpha_i / (alpha_i + beta_i)
+#   post_var_i  = alpha_i * beta_i / ((alpha_i + beta_i)^2 * (alpha_i + beta_i + 1))
+# Precision weights (1 / post_var) shrink noisy low-depth samples; they are
+# optionally capped per site (at median + MAD * qnorm(cap_q)) so one very-high-
+# depth sample cannot dominate the fit. cap_q = NULL/NA disables the cap.
+eb_shrink_site <- function(n_alt, n_ref, iv_weighting = TRUE, cap_q = 0.95) {
+  n_tot <- n_alt + n_ref
+  prior <- tryCatch(
+    ebbr::ebb_fit_prior(tibble(x = n_alt[n_tot > 0], n = n_tot[n_tot > 0]), x, n),
+    error = function(e) NULL
+  )
+  if (is.null(prior)) {
+    # degenerate site (prior did not converge): fall back to raw rate, no weighting
+    post_mean <- ifelse(n_tot > 0, n_alt / n_tot, 0)
+    return(tibble(post_mean = post_mean, weights = rep(1, length(n_alt))))
+  }
+  a0    <- prior$parameters$alpha
+  b0    <- prior$parameters$beta
+  alpha <- n_alt + a0
+  beta  <- n_ref + b0
+  post_mean <- alpha / (alpha + beta)
+  post_var  <- (alpha * beta) / ((alpha + beta)^2 * (alpha + beta + 1))
+  if (iv_weighting) {
+    w <- 1 / post_var
+    if (!is.null(cap_q) && !is.na(cap_q)) {
+      w <- pmin(w, median(w) + mad(w) * qnorm(cap_q))
+    }
+  } else {
+    w <- rep(1, length(n_alt))
+  }
+  tibble(post_mean = post_mean, weights = w)
 }
 
 

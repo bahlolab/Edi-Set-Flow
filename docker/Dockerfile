@@ -13,6 +13,9 @@ RUN install2.r --error --skipinstalled \
     ggrepel \
     pheatmap
 
+# ebbr is GitHub-only (not on CRAN); required by the '*-ebbr' fit_edisites models
+RUN R -q -e "remotes::install_github('dgrtwo/ebbr', upgrade = 'never')"
+
 COPY edisetr /tmp/edisetr
 
 RUN R -q -e "remotes::install_local('/tmp/edisetr', dependencies = TRUE, upgrade = 'never', build_vignettes = FALSE)"
