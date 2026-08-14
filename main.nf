@@ -48,7 +48,7 @@ params.exclude_bed         = null
 /* ------------- Preproc/alignment -------------------*/
 // whether or not to preprocess fastqs with fastp
 // either null (disabled), 'MINIMAL' or 'STRICT'
-params.fastp_mode = null
+params.fastp_mode = 'MINIMAL'
 // Aligner of choice, either STAR or BWAMEM2 (if using BWAMEM2, index files must exist at refbase)
 params.aligner = 'BWAMEM2'
 // bam filters

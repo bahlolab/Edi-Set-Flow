@@ -16,9 +16,13 @@ fit_edisites <- function(
   model     <- match.arg(model)
 
   stopifnot(
-    is.data.frame(counts_df) || inherits(counts_df, 'multidplyr_party_df'),
+    is.data.frame(counts_df) || inherits(counts_df, 'multidplyr_party_df')
+  )
+  counts_cols <- colnames(head(counts_df))
+
+  stopifnot(
     is.data.frame(covariates_df),
-    all(c("site_id", "sample_id", "n_alt", "n_ref") %in% colnames(head(counts_df))),
+    all(c("site_id", "sample_id", "n_alt", "n_ref") %in% counts_cols),
     all(fixed_effects %in% colnames(covariates_df)),
     is.character(model) && length(model) > 0,
     rlang::is_bool(fdr_bh),
@@ -27,6 +31,10 @@ fit_edisites <- function(
     rlang::is_bool(fdr_emp),
     rlang::is_bool(permute_group)
   )
+
+  if ('weights' %in% counts_cols) {
+    message('fitting GLM using weights, remove weights column to disable')
+  }
 
   fixed_effects <- unique(c('group', fixed_effects))
 
@@ -78,7 +86,7 @@ fit_edisites <- function(
     }) %>%
     summarise(
       result = edisetr:::fit_glm(
-        data    = pick(n_alt, n_ref, all_of(!!fixed_effects)),
+        data    = pick(n_alt, n_ref, all_of(!!fixed_effects), any_of('weights')),
         formula = formula,
         family  = family,
         .with_null = !!fdr_emp
@@ -149,8 +157,12 @@ fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE)
   if (.do_null) {
     data$group <- sample(data$group)
   }
+  if (! 'weights' %in% colnames(data)) {
+    data$weights <- 1
+  }
 
-  fit <- glm(formula = formula, data = data, family = family)
+  fit <- glm(formula = formula, data = data, family = family,
+             weights = weights)
 
   smry <- tidy(fit) %>% rename_with(make_clean_names)
 
@@ -311,7 +323,7 @@ pairwise_glm_contrasts <- function(fit, group_var) {
 group_emm <- function(fit, data, group="group", alpha = 0.05) {
   # Identify model predictors
   mf    <- model.frame(fit, data = data)
-  preds <- names(mf)[-1]
+  preds <- names(mf)[-1] %>% setdiff("(weights)")
   if (!(group %in% preds)) {
     stop("`group` must be one of the model predictors.")
   }
