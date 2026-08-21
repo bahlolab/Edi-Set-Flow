@@ -1,6 +1,7 @@
 include { FASTP    } from '../../modules/local/align/fastp.nf'
 include { STAR     } from '../../modules/local/align/star.nf'
 include { BWAMEM2  } from '../../modules/local/align/bwamem2.nf'
+include { COLLATE  } from '../../modules/local/align/collate.nf'
 include { SAMTOOLS } from '../../modules/local/align/samtools.nf'
 include { MOSDEPTH } from '../../modules/local/align/mosdepth.nf'
 include { STRAND   } from '../../modules/local/align/strand.nf'
@@ -8,6 +9,7 @@ include { STRAND   } from '../../modules/local/align/strand.nf'
 workflow ALIGN {
     take:
     fastqs
+    pre_aligned_bams
     ref_fasta
     ref_gtf
     bwamem2_index
@@ -44,6 +46,11 @@ workflow ALIGN {
         aligned_bams = BWAMEM2.out
     }
 
+    // inject pre-aligned bams between the aligner and SAMTOOLS;
+    // collate first so they are read-grouped for SAMTOOLS `fixmate -m`
+    COLLATE(pre_aligned_bams)
+    aligned_bams = aligned_bams.mix(COLLATE.out)
+
     SAMTOOLS(
         aligned_bams,
         ref_fasta
@@ -51,7 +58,6 @@ workflow ALIGN {
 
     bamdir = file("${params.outdir}/bam").with{ it.mkdirs(); it}.toRealPath()
     
-
     MOSDEPTH(
         SAMTOOLS.out
     )

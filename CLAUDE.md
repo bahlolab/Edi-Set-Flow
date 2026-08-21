@@ -52,7 +52,7 @@ SETUP → ALIGN → DISCO (COUNT pass 1) → COUNT (COUNT pass 2) → ANNOT → 
 
 **`subworkflows/local/setup.nf`** — Downloads and caches all reference data: reference genome (bgzipped FASTA + index), UCSC repeat masker, GTF (Gencode), REDIportal catalog, dbSNP and gnomAD exclusion lists, and builds STAR or BWA-MEM2 indices. Also computes `target_regions` (union of GTF/REDIportal/custom BED minus exclusions) and splits them into `n_intervals` genomic intervals for parallelism.
 
-**`subworkflows/local/align.nf`** — Optional fastp trimming → STAR or BWA-MEM2 alignment → samtools filtering (dedup, mapq) → mosdepth coverage → automatic strand inference via RSeQC `infer_experiment.py`. Emits per-sample tuples of `(sample, bam, bai, strand, coverage_bed, coverage_idx)`. Errors if stranded and unstranded samples are mixed.
+**`subworkflows/local/align.nf`** — Optional fastp trimming → STAR or BWA-MEM2 alignment → samtools filtering (dedup, mapq) → mosdepth coverage → automatic strand inference via RSeQC `infer_experiment.py`. Emits per-sample tuples of `(sample, bam, bai, strand, coverage_bed, coverage_idx)`. Errors if stranded and unstranded samples are mixed. Samples supplying a pre-aligned `bam` in the manifest bypass fastp/alignment: they are name-collated (`COLLATE`, so `samtools fixmate -m` is valid) and mixed into the aligned-BAM channel between the aligner and SAMTOOLS, then follow the identical downstream path.
 
 **`subworkflows/local/count.nf`** — Used **twice** with different options, aliased as `DISCO` (discovery) and `COUNT` (counting):
 1. `WHERE`: intersects each sample's mosdepth-callable regions with target regions to get per-sample input BEDs for JACUSA2.

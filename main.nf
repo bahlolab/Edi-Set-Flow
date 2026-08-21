@@ -5,7 +5,9 @@
 // params.mode = 'DISCOVERY' // either DISCOVERY, CATALOGUE, or BOTH
 
 /* ------------------ INPUT PARAMS ------------------*/
-// input sample manifest in csv format: sample_id, fastq1, fastq2
+// input sample manifest in csv format; each sample provides one of:
+// fastq1 (+ optional fastq2), run_accession (SRA/ENA), or bam (pre-aligned)
+// columns: sample_id, [fastq1, fastq2 | run_accession | bam]
 params.input  = null
 // directory to store pipeline outputs
 params.outdir = 'output'

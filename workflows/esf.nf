@@ -15,13 +15,25 @@ workflow ESF {
 
     /* ----------------- READ INPUTS ------------------- */
 
-    // TODO: check 1 row per sample
     input = WfEdiSetFlow.read_csv(file(params.input, checkIfExists:true), required: ['sample_id'])
+
+    // each sample_id must appear exactly once
+    dup_ids = input.countBy { it.sample_id }.findAll { _id, n -> n > 1 }.keySet()
+    if (dup_ids) {
+        error("ERROR: duplicate sample_id(s) in '${params.input}': ${dup_ids.join(', ')}")
+    }
+
+    // each sample must provide at least one input source: bam, fastq1 or run_accession
+    no_input = input.findAll { it.bam == null && it.fastq1 == null && it.run_accession == null }
+                    .collect { it.sample_id }
+    if (no_input) {
+        error("ERROR: sample(s) with no bam/fastq1/run_accession in '${params.input}': ${no_input.join(', ')}")
+    }
 
     fastqs = Channel
         .fromList(input)
         .filter { it.bam == null } // exclude samples which already have bams
-        .filter { it.fastq1 != null } // TODO - raise error if sample has no inputs
+        .filter { it.fastq1 != null }
         .map { [ it.sample_id, [it.fastq1] + (it.fastq2 == null ? [] : [it.fastq2]) ] }
         .map { [it[0], it[1].collect { file(it, checkIfExists: true) }] }
 
@@ -37,16 +49,18 @@ workflow ESF {
         fastqs = fastqs.mix(FASTERQDUMP.out)
     }
 
-    // bams = Channel
-    //     .fromList(input)
-    //     .filter { it.bam != null }
-    //     .map { [it.sample_id, file(it.bam, checkIfExists: true), file("${it.bam}.bai", checkIfExists: true)] }
+    // pre-aligned bams; re-processed by SAMTOOLS, so no index needed here
+    bams = Channel
+        .fromList(input)
+        .filter { it.bam != null }
+        .map { [it.sample_id, file(it.bam, checkIfExists: true)] }
 
     /* ----------------- RUN SUBWORKFLOWS ------------------- */
     SETUP()
 
     ALIGN(
         fastqs,
+        bams,
         SETUP.out.ref_genome,
         SETUP.out.gtf_uncompressed,
         SETUP.out.bwamem2_index,

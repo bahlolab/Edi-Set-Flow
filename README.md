@@ -30,6 +30,7 @@ Edi-Set-Flow runs in five stages:
     - **One of** the following input options per sample:
         - `fastq1` (+ optional `fastq2`) — paths to local FASTQ files; omit `fastq2` or leave blank for single-end data
         - `run_accession` — SRA or ENA run accession (e.g. `SRR...`, `ERR...`); reads are downloaded automatically using `fasterq-dump`
+        - `bam` — path to a pre-aligned BAM. The BAM must be aligned to the same reference genome (and contig naming) as the pipeline. It skips FASTP/alignment but is still name-collated and passed through the standard `samtools` filtering (fixmate, mapq, optional dedup), coverage and strand inference
 - **Optional Columns:**
     - Arbitrary covariates to include in the GLM as fixed effects (specified via `--report_fixed_effects`)
     - Columns containing numbers are treated as numeric; all others are treated as factors
@@ -49,6 +50,14 @@ Edi-Set-Flow runs in five stages:
     SRR5961808,SRR5961808,MDD,38
     ...
     ```
+- **Example (pre-aligned BAMs):**
+     ```
+    sample_id,bam,group,age
+    S01,/PATH/TO/S01.bam,CTRL,38
+    S02,/PATH/TO/S02.bam,MDD,55
+    ...
+    ```
+    Input options can be mixed within a single manifest (some rows `fastq1`, others `bam`, etc.).
 
 ### 3) Run Edi-Set-Flow
 - **Example:**
