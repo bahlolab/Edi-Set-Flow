@@ -107,6 +107,7 @@ params.report_adar_only       = true     // only A>I sites
 params.report_grp_min_med_dp  = 10       // min median depth per group per site for GLM fit
 params.report_grp_min_med_vaf = 0.001    // min median VAF per group per site for GLM fit
 params.report_grp_max_med_vaf = 0.999    // max median VAF per group per site for GLM fit
+params.report_sig_q           = 0.001    // BH q-value significance threshold for differential editing
 
 // force local R package install (useful for dev)
 params.install_edisetr        = false         

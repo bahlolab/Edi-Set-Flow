@@ -4,7 +4,7 @@ editor: source
 format:
   html:
     toc: true
-    toc-location: left  
+    toc-location: left
     toc-depth: 3
     toc-expand: true
     embed-resources: true
@@ -88,6 +88,8 @@ params:
   grp_min_med_dp: 10
   grp_min_med_vaf: 0.001
   grp_max_med_vaf: 0.999
+  # significance threshold (BH q-value) for differential editing
+  sig_q: 0.001
   output: 'output'
 ---
 
@@ -96,6 +98,24 @@ library(tidyverse)
 library(multidplyr)
 library(patchwork)
 library(edisetr)
+
+# fixed colour mapping for repeat classes, reused across all plots
+rep_type_cols <- setNames(RColorBrewer::brewer.pal(3, 'Dark2'), c('ALU', 'REP', 'NONREP'))
+
+# shared interactive datatable helper (copy/csv/excel buttons, signif formatting)
+esf_datatable <- function(x, digits = 3) {
+  DT::datatable(
+    x,
+    rownames = FALSE,
+    colnames = str_replace_all(names(x), '_', ' '),
+    extensions = 'Buttons',
+    options = list(
+      dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel'),
+      scrollX = TRUE, pageLength = 10
+    )
+  ) %>%
+    DT::formatSignif(columns = which(map_lgl(x, is.numeric)), digits = digits)
+}
 
 # check params
 stopifnot(
@@ -108,6 +128,8 @@ stopifnot(
   is_scalar_integer(params$grp_min_med_dp),
   is_scalar_double(params$grp_min_med_vaf) || is_scalar_integer(params$grp_min_med_vaf),
   is_scalar_double(params$grp_max_med_vaf) || is_scalar_integer(params$grp_max_med_vaf),
+  is_scalar_double(params$sig_q) || is_scalar_integer(params$sig_q),
+  params$sig_q > 0, params$sig_q <= 1,
   is.null(params$fixed_effects) || is_character(params$fixed_effects)
 )
 
@@ -156,8 +178,26 @@ edisites <-
 
 ```
 
+```{r run_summary}
+#| results: asis
+cat(sprintf(
+"::: {.callout-note}\n## Run summary\n- **Samples:** %s\n- **Groups:** %s\n- **Candidate sites:** %s\n- **Passing filters:** %s (%.1f%%)\n- **ADAR (A>I) sites:** %s\n:::\n",
+  format(nrow(edisites$sample_summary), big.mark = ','),
+  format(n_distinct(sample_metadata$group), big.mark = ','),
+  format(nrow(edisites$summary), big.mark = ','),
+  format(sum(edisites$summary$pass), big.mark = ','),
+  100 * mean(edisites$summary$pass),
+  format(sum(edisites$summary$pass & edisites$summary$is_adar), big.mark = ',')
+))
+```
+
 ## QC
+
+Quality-control views of the candidate editing sites and the samples they were called in, before any differential analysis.
+
 ### Filtering
+
+How many candidate sites passed the site-level filters, broken down by the reason(s) failing sites were excluded.
 
 ```{r filtering_summary}
 edisites$summary %>% 
@@ -196,6 +236,9 @@ edisites$summary %>%
 ```
 
 ### Coverage & rate
+
+Median read depth versus median editing rate (VAF), per site (left) and per sample (right), to spot coverage or rate outliers.
+
 ```{r depth_vaf}
 p1 <-
   edisites$summary %>% 
@@ -225,25 +268,20 @@ p2 <-
 ```
 
 ### Sample summary table
+
+Per-sample depth, editing rate and editing indices.
 ```{r sample_smry}
-edisites$sample_summary %>% 
-  (function(x) {
-    DT::datatable(
-      x,
-      extensions = 'Buttons',
-      options = list(
-        dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
-      )) %>%
-      DT::formatSignif(
-        columns = which(map_lgl(x, is.numeric)),
-        digits = 3
-      )
-  })
+edisites$sample_summary %>%
+  esf_datatable()
 ```
 
 ## Editing Summary
+
+Genome-wide characterisation of the detected editing sites: which base changes occur, how strongly they are edited, and where they sit relative to repeats and gene features.
+
 ### Base change distribution
+
+Frequency of each base change, its editing rate, and its split by repeat class (ALU / REP / NONREP). A>G on the sense strand indicates ADAR (A-to-I) editing.
 
 ```{r sites_basechange_smry}
 
@@ -276,8 +314,7 @@ p2 <-
     outlier.alpha = 0.25,
     outlier.size = 1
   ) +
-  # geom_jitter(alpha = 0.05, height = 0) +
-  coord_flip() + 
+  coord_flip() +
   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), axis.ticks.y = element_blank())  +
   labs(y = 'Median Rate')
 
@@ -288,7 +325,7 @@ p3 <-
   mutate(prop = n /sum(n)) %>% 
   ggplot(aes(base_change, prop)) +
   geom_col(aes(fill = rep_type)) +
-  scale_fill_brewer(palette = 'Dark2') +
+  scale_fill_manual(values = rep_type_cols) +
   coord_flip() +
   theme(
     legend.position = 'right',
@@ -302,13 +339,15 @@ p3 <-
   )
 
 
-(p1 | p2 | p3) + 
+(p1 | p2 | p3) +
   plot_annotation(
     title = 'Base change frequency, editing rate and repeat type'
   )
 ```
 
 ### Editing site consequences
+
+Predicted functional consequence (VEP) of ADAR sites, with editing rate and repeat-class breakdown. Sites with multiple consequences are weighted equally across them.
 
 ```{r vep_csq_smry}
 vep_csq_smry <-
@@ -355,8 +394,7 @@ p2 <-
     outlier.alpha = 0.25,
     outlier.size = 1
   ) +
-  # geom_jitter(alpha = 0.05, height = 0) +
-  coord_flip() + 
+  coord_flip() +
   theme(
     axis.text.y = element_blank(),
     axis.title.y = element_blank(),
@@ -373,7 +411,7 @@ p3 <-
   mutate(prop = weight /sum(weight)) %>% 
   ggplot(aes(consequence, prop)) +
   geom_col(aes(fill = rep_type)) +
-  scale_fill_brewer(palette = 'Dark2') +
+  scale_fill_manual(values = rep_type_cols) +
   coord_flip() +
   theme(
     legend.position = 'right',
@@ -387,7 +425,7 @@ p3 <-
   )
 
 
-(p1 | p2 |p3) + 
+(p1 | p2 |p3) +
   plot_annotation(
     title = 'ADAR editing by variant consequence and repeat type'
   )
@@ -396,30 +434,43 @@ p3 <-
 
 ### Highly edited sites by VEP impact
 
+The most highly edited sites (top 100 by median VAF) within each VEP impact category, for inspection of functionally notable edits.
+
 ```{r top_edited_sites}
-edisites$summary %>% 
-  filter(pass) %>% 
-  select(symbol, site_id, med_vaf, rep_type, impact, consequence, amino_acids, redi_acc) %>% 
-  mutate(impact = factor(impact, c('HIGH', 'MODERATE', 'LOW', 'MODIFIER'))) %>% 
-  group_by(impact) %>% 
-  slice_max(order_by = med_vaf, n = 100, with_ties = F) %>% 
-  ungroup() %>% 
-  arrange(impact, desc(med_vaf)) %>% 
-  (function(x) {
-    DT::datatable(
-      x,
-      extensions = 'Buttons',
-      options = list(
-        dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
-      )) %>%
-      DT::formatSignif(
-        columns = which(map_lgl(x, is.numeric)),
-        digits = 3
-      )
-  })
-  
+top_edited <-
+  edisites$summary %>%
+  filter(pass) %>%
+  select(symbol, site_id, med_vaf, rep_type, impact, consequence, amino_acids, redi_acc) %>%
+  mutate(impact = factor(impact, c('HIGH', 'MODERATE', 'LOW', 'MODIFIER'))) %>%
+  group_by(impact) %>%
+  slice_max(order_by = med_vaf, n = 100, with_ties = F) %>%
+  ungroup() %>%
+  arrange(impact, desc(med_vaf))
 ```
+
+::: {.panel-tabset}
+
+#### HIGH
+```{r top_edited_high}
+top_edited %>% filter(impact == 'HIGH') %>% select(-impact) %>% esf_datatable()
+```
+
+#### MODERATE
+```{r top_edited_moderate}
+top_edited %>% filter(impact == 'MODERATE') %>% select(-impact) %>% esf_datatable()
+```
+
+#### LOW
+```{r top_edited_low}
+top_edited %>% filter(impact == 'LOW') %>% select(-impact) %>% esf_datatable()
+```
+
+#### MODIFIER
+```{r top_edited_modifier}
+top_edited %>% filter(impact == 'MODIFIER') %>% select(-impact) %>% esf_datatable()
+```
+
+:::
 
 ```{r fit_edisites}
 covariates_df <-
@@ -438,9 +489,14 @@ edifit <- fit_edisites(
 
 ## Differential editing by group
 
+Tests for whether each site's editing rate differs across the sample groups (ANOVA on the group term of the per-site GLM), followed by the sites and genes driving those differences.
+
 ```{r anova_prep}
+# shared significance threshold (BH q-value) used across this section
+sig_q <- params$sig_q
+
 manh_dat <-
-  edifit$anova %>% 
+  edifit$anova %>%
   left_join(
     edisites$summary %>% 
       select(site_id, is_adar, rep_type, consequence, impact, symbol, biotype, amino_acids),
@@ -463,70 +519,80 @@ manh_dat <-
   mutate(
     offset = lag(max_pos, default = 0) %>% as.numeric() %>% cumsum(),
     mid    = offset + (max_pos / 2),
-    colg   = as_factor(rep(c(1:2), length.out=n()))) %>% 
-  unnest(data) %>% 
-  mutate(pos = pos+offset) %>% 
-  filter(!chrom %in% c('chrY', 'chrM'))
+    colg   = as_factor(rep(c(1:2), length.out=n()))) %>%
+  unnest(data) %>%
+  mutate(pos = pos+offset) %>%
+  filter(!chrom %in% c('chrY', 'chrM')) %>%
+  mutate(
+    logp = -log10(q_value_bh),
+    is_missense = str_detect(consequence, 'missense') %>% replace_na(FALSE)
+  )
 
 manh_labels <-
-  manh_dat %>% 
-  group_by(chrom) %>% 
-  summarise(mid = first(mid), .groups = 'drop') %>% 
+  manh_dat %>%
+  group_by(chrom) %>%
+  summarise(
+    start = min(pos), end = max(pos), mid = first(mid),
+    .groups = 'drop'
+  ) %>%
   mutate(chrom = str_remove(chrom, 'chr'))
 
+# top-labelled genes per repeat type (best site per gene symbol)
 man_genes <-
-  manh_dat %>% 
-  mutate(group = case_when(
-    rep_type == 'NONREP' & str_detect(consequence, 'missense') ~ 'Non-rep. missense',
-    rep_type == 'NONREP'                       ~ 'Non-rep. non-coding',
-    rep_type != 'NONREP' & str_detect(consequence, 'missense') ~ 'Rep. missense',
-    TRUE                                       ~ 'Rep. non-coding'
-  )) %>% 
-  group_by(group, symbol) %>%
-  slice_min(p_value, n = 1) %>% 
-  group_by(group) %>% 
-  slice_min(p_value, n = 6) %>% 
-  ungroup() %>% 
+  manh_dat %>%
+  group_by(rep_type, symbol) %>%
+  slice_min(p_value, n = 1, with_ties = FALSE) %>%
+  group_by(rep_type) %>%
+  slice_min(p_value, n = 6, with_ties = FALSE) %>%
+  ungroup() %>%
   mutate(symbol = if_else(
     !is.na(amino_acids),
     str_c(symbol, ' (', str_replace(amino_acids, '/', '>'), ')'),
     symbol)
-  ) %>% 
-  select(site_id,pos, symbol, group, p_value) %>% 
-  mutate(logp = if_else(
-    str_detect(group, 'Non-rep'),
-    -log10(p_value),
-    log10(p_value)
-  )) %>% 
-  filter(group != 'Rep. missense')
+  ) %>%
+  mutate(symbol = replace_na(symbol, 'Intergenic')) %>%
+  select(site_id, pos, symbol, rep_type, p_value, q_value_bh, logp)
 ```
 
-### Number of differentially edited sites 
+```{r diff_summary}
+#| results: asis
+cat(sprintf(
+"::: {.callout-note}\n## Differential editing\n- **Sites tested:** %s\n- **Differentially edited** (q < %s): %s (%.1f%%)\n:::\n",
+  format(nrow(manh_dat), big.mark = ','),
+  format(sig_q, scientific = FALSE),
+  format(sum(manh_dat$q_value_bh < sig_q, na.rm = TRUE), big.mark = ','),
+  100 * mean(manh_dat$q_value_bh < sig_q, na.rm = TRUE)
+))
+```
 
-```{r anova_rate }
+### Number of differentially edited sites
+
+Counts (left) and proportions (right) of sites with a significant group effect, split by repeat class.
+
+```{r anova_rate}
 p1 <-
-  manh_dat %>% 
-  mutate(is_sig = q_value_bh < 1e-5) %>% 
-  count(is_sig, rep_type) %>% 
-  group_by(rep_type) %>% 
-  mutate(p = n / sum(n)) %>% 
-  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  manh_dat %>%
+  mutate(is_sig = q_value_bh < sig_q) %>%
+  count(is_sig, rep_type) %>%
+  group_by(rep_type) %>%
+  mutate(p = n / sum(n)) %>%
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>%
   ggplot() +
   geom_col(aes(rep_type, n, fill = is_sig)) +
-  theme(legend.position = c(0.55, 0.8)) +
+  theme(legend.position = 'top') +
   coord_flip() +
   labs(
-    fill = 'Significant group effect\np-value BH < 1e-3',
+    fill = str_c('Significant group effect\nq-value BH < ', sig_q),
     x = 'Repeat type', y = 'Count'
   )
 
 p2 <-
-  manh_dat %>% 
-  mutate(is_sig = q_value_bh < 1e-3) %>% 
-  count(is_sig, rep_type) %>% 
-  group_by(rep_type) %>% 
-  mutate(p = n / sum(n)) %>% 
-  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>% 
+  manh_dat %>%
+  mutate(is_sig = q_value_bh < sig_q) %>%
+  count(is_sig, rep_type) %>%
+  group_by(rep_type) %>%
+  mutate(p = n / sum(n)) %>%
+  mutate(rep_type = factor(rep_type, c('ALU', 'REP', 'NONREP'))) %>%
   ggplot() +
   geom_col(aes(rep_type, p, fill = is_sig), show.legend = F) +
   coord_flip()+
@@ -536,7 +602,7 @@ p2 <-
     axis.title.y = ggplot2::element_blank()
   ) +
   labs(
-    fill = 'Significant group effect\np-value BH < 1e-3',
+    fill = str_c('Significant group effect\nq-value BH < ', sig_q),
     y = 'Proportion'
   )
 
@@ -545,44 +611,49 @@ p1 + p2
 ```
 
 ### Differential editing Manhattan-style plot
-```{r anova_manhattan }
-bind_rows(
-  manh_dat %>% 
-    filter(rep_type == 'NONREP') %>% 
-    mutate(logp = -log10(p_value)),
-  manh_dat %>% 
-    filter(rep_type != 'NONREP') %>% 
-    mutate(logp = log10(p_value))) %>% 
+
+Each point is a site; height is the BH-corrected significance of the group effect. Panels split sites by repeat class (ALU / REP / NONREP), missense sites are highlighted in gold, and the strongest 6 genes per class are labelled.
+
+```{r anova_manhattan}
+manh_dat %>%
   ggplot(aes(pos, logp)) +
   geom_point(
     aes(col = colg),
-    size = 0.3, 
+    size = 0.3,
     show.legend = F
-  ) + 
+  ) +
+  geom_point(
+    col = 'gold',
+    size = 0.3,
+    show.legend = F,
+    data = manh_dat %>% filter(is_missense)
+  ) +
   scale_color_manual(
-    values = c(`1` = "#2372B9", `2` = "#49A942")
+    values = c(`1` = "gray30", `2` = "gray55")
   ) +
   ggrepel::geom_label_repel(
     aes(label = symbol),
     min.segment.length = 0,
     data = man_genes,
     fill  = alpha("white", 0.7),
-    size = 3.5
+    size = 3.5,
+    label.padding = 0.15
   ) +
   scale_x_continuous(
     breaks = manh_labels$mid,
-    minor_breaks = NULL,
+    minor_breaks = c(manh_labels$start, last(manh_labels$end)),
     labels = manh_labels$chrom
   ) +
-  geom_hline(yintercept = 0) +
+  facet_wrap(~rep_type, ncol = 1, strip.position = 'right', scales = 'free_y') +
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5)
+    axis.text.x = element_text(angle = 90, vjust = 0.5),
+    panel.grid.major = element_blank()
   ) +
   labs(
     title = 'Anova test for group effect',
-    subtitle = 'Upper: non-repetitive; Lower: repetitive',
+    subtitle = 'Missense sites highlighted in gold',
     x = 'Chromosome',
-    y = '-log10 p-value'
+    y = '-log10 q-value'
   )
 ```
 
@@ -612,81 +683,75 @@ if (n_distinct(sample_metadata$group) > 2) {
 
 ```
 
-### Top differentially edited sites, 1000 per VEP impact
-```{r top_diff_table}
-edifit$anova %>% 
-  filter(term == 'group') %>% 
-  left_join(
-    edisites$summary %>% 
-      select(site_id, redi_acc,is_adar, rep_type, consequence, impact, symbol, biotype, amino_acids),
-    by = 'site_id'
-  ) %>% 
-  group_by(impact) %>% 
-  slice_min(order_by = p_value, n = 1000) %>% 
-  ungroup() %>% 
-  select(site_id, redi_acc, p_value, q_value_bh, rep_type, symbol, impact, consequence, amino_acids) %>% 
-  (function(x) {
-    DT::datatable(
-      x,
-      extensions = 'Buttons',
-      options = list(
-        dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
-      )) %>%
-      DT::formatSignif(
-        columns = which(map_lgl(x, is.numeric)),
-        digits = 3
-      )
-  })
-```
-
 ### Marginal editing by group at top differential sites
+
+Model-estimated editing rate per group (error bars) with the underlying per-sample VAFs (points) at the top-labelled sites, split into tabs by repeat class plus a tab for the top missense sites.
+
 ```{r top_6_diff}
 
+# top missense sites (best per gene, regardless of repeat class) for a dedicated tab
+missense_genes <-
+  manh_dat %>%
+  filter(is_missense) %>%
+  group_by(symbol) %>%
+  slice_min(p_value, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  slice_min(p_value, n = 6, with_ties = FALSE) %>%
+  mutate(symbol = if_else(
+    !is.na(amino_acids),
+    str_c(symbol, ' (', str_replace(amino_acids, '/', '>'), ')'),
+    symbol)
+  ) %>%
+  mutate(symbol = replace_na(symbol, 'Intergenic')) %>%
+  select(site_id, pos, symbol, rep_type, p_value, q_value_bh, logp)
+
+# `category` drives the tabs: repeat class for most, plus a MISSENSE group
 top_diffed_marg <-
-  man_genes %>% 
-  rename(type = group) %>% 
-  arrange(p_value) %>% 
-  left_join(edifit$margins, by = 'site_id') %>% 
+  bind_rows(
+    man_genes %>% mutate(category = rep_type),
+    missense_genes %>% mutate(category = 'MISSENSE')
+  ) %>%
+  arrange(p_value) %>%
+  left_join(edifit$margins, by = 'site_id') %>%
   mutate(label = str_c(
     symbol, '\n',
     str_remove(site_id, '_._.:.') %>% str_replace('_', ':'), '\n',
-    'p-value = ', signif(p_value,digits = 2))
-  ) %>% 
-  mutate(label = as_factor(label)) %>% 
+    'p-value = ', signif(p_value, digits = 2))
+  ) %>%
+  mutate(label = as_factor(label)) %>%
   mutate(group = factor(group, group_ord))
 
 top_diffed_vaf <-
-  edisites$counts %>% 
-  semi_join(top_diffed_marg, by = 'site_id', copy = TRUE) %>% 
+  edisites$counts %>%
+  semi_join(top_diffed_marg, by = 'site_id', copy = TRUE) %>%
   collect() %>%
-  filter(depth >= 10) %>% 
+  filter(depth >= 10) %>%
   left_join(
     sample_metadata %>% select(sample_id, group),
     by = 'sample_id'
-  ) %>% 
-  mutate(group = factor(group, group_ord)) %>% 
+  ) %>%
+  mutate(group = factor(group, group_ord)) %>%
   left_join(
-    select(top_diffed_marg, site_id, type) %>% distinct(),
-    by = 'site_id'
-  ) %>% 
-  select(site_id, type, group, sample_id, vaf) %>% 
+    select(top_diffed_marg, site_id, category) %>% distinct(),
+    by = 'site_id', relationship = 'many-to-many'
+  ) %>%
+  select(site_id, category, group, sample_id, vaf) %>%
   inner_join(
     top_diffed_marg %>%
-      select(site_id, label) %>% 
-      distinct(), 
+      select(site_id, label) %>%
+      distinct(),
     by = 'site_id'
   )
 
-marg_plot <- function(type) {
-  top_diffed_marg %>% 
-    filter(type == !!type) %>% 
+marg_plot <- function(cat) {
+  top_diffed_marg %>%
+    filter(category == cat) %>%
     ggplot(aes(group, estimate)) +
     geom_jitter(
       aes(y = vaf, col = group),
-      data = top_diffed_vaf %>% filter(type == !!type),
+      data = top_diffed_vaf %>% filter(category == cat),
       height = 0,
-      alpha =0.33,
+      alpha = 0.33,
       size = 0.75,
       width = 0.4,
       show.legend = F
@@ -698,24 +763,97 @@ marg_plot <- function(type) {
     coord_flip() +
     facet_wrap(~label, ncol = 3) +
     labs(
-      title = type,
       x = 'Group',
       y = 'Editing VAF'
     )
 }
+```
 
-if ('Non-rep. missense' %in% top_diffed_marg$type) {
-  marg_plot('Non-rep. missense')
-}
-if ('Non-rep. non-coding' %in% top_diffed_marg$type) {
-  marg_plot('Non-rep. non-coding')
-}
-if ('Rep. non-coding' %in% top_diffed_marg$type) {
-  marg_plot('Rep. non-coding')
+::: {.panel-tabset}
+
+#### ALU
+```{r marg_alu}
+if ('ALU' %in% top_diffed_marg$category) {
+  marg_plot('ALU')
 }
 ```
+
+#### REP
+```{r marg_rep}
+if ('REP' %in% top_diffed_marg$category) {
+  marg_plot('REP')
+}
+```
+
+#### NONREP
+```{r marg_nonrep}
+if ('NONREP' %in% top_diffed_marg$category) {
+  marg_plot('NONREP')
+}
+```
+
+#### Missense
+```{r marg_missense}
+if ('MISSENSE' %in% top_diffed_marg$category) {
+  marg_plot('MISSENSE')
+}
+```
+
+:::
+
+### Top differentially edited sites, 1000 per VEP impact
+
+Significant differentially edited sites (q < `r sig_q`), top 1000 by p-value within each VEP impact category, split into tabs.
+
+```{r top_diff_table}
+top_diff <-
+  edifit$anova %>%
+  filter(term == 'group') %>%
+  left_join(
+    edisites$summary %>%
+      select(site_id, redi_acc, is_adar, rep_type, consequence, impact, symbol, biotype, amino_acids),
+    by = 'site_id'
+  ) %>%
+  filter(q_value_bh < sig_q) %>%
+  mutate(impact = factor(impact, c('HIGH', 'MODERATE', 'LOW', 'MODIFIER'))) %>%
+  group_by(impact) %>%
+  slice_min(order_by = p_value, n = 1000) %>%
+  ungroup() %>%
+  arrange(impact, p_value) %>%
+  select(site_id, redi_acc, p_value, q_value_bh, rep_type, symbol, impact, consequence, amino_acids)
+```
+
+::: {.panel-tabset}
+
+#### HIGH
+```{r top_diff_high}
+top_diff %>% filter(impact == 'HIGH') %>% select(-impact) %>% esf_datatable()
+```
+
+#### MODERATE
+```{r top_diff_moderate}
+top_diff %>% filter(impact == 'MODERATE') %>% select(-impact) %>% esf_datatable()
+```
+
+#### LOW
+```{r top_diff_low}
+top_diff %>% filter(impact == 'LOW') %>% select(-impact) %>% esf_datatable()
+```
+
+#### MODIFIER
+```{r top_diff_modifier}
+top_diff %>% filter(impact == 'MODIFIER') %>% select(-impact) %>% esf_datatable()
+```
+
+:::
+
 ### PCA - Group and covariates
 
+Principal components of editing rate at the top differential sites, coloured by group and by each covariate, to check what structure the editing captures.
+
+::: {.panel-tabset}
+
+#### Plot
 ```{r pca}
 
 pca_data <-
@@ -778,39 +916,37 @@ ps <-
 
 wrap_plots(ps)
 ```
-### PCA table
+
+#### Table
 ```{r pca_table}
-ed_pca_covar %>% 
-  (function(x) {
-    DT::datatable(
-      x, 
-      extensions = 'Buttons',
-      options = list(
-        dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel')
-      )) %>%
-      DT::formatSignif(
-        columns = which(map_lgl(x, is.numeric)),
-        digits = 3
-      )
-  })
+ed_pca_covar %>%
+  esf_datatable()
 ```
 
+:::
+
 ### Clustered heatmap at differential sites
+
+Editing rate (model estimate) across groups for the top differential sites, clustered to reveal groups of sites and samples with similar editing patterns. The sidebar marks repetitive vs non-repetitive sites.
+
 ```{r pheatmap}
 ann <-
-  edisites$summary %>% 
-  filter(site_id %in% colnames(marg_rate)) %>% 
-  mutate(Status = if_else(rep_type == 'NONREP', 'Non-repetitive', 'Repetitive')) %>% 
-  select(site_id, Status) %>% 
-  as.data.frame() %>% 
+  edisites$summary %>%
+  filter(site_id %in% colnames(marg_rate)) %>%
+  mutate(Status = if_else(rep_type == 'NONREP', 'Non-repetitive', 'Repetitive')) %>%
+  select(site_id, Status) %>%
+  as.data.frame() %>%
   column_to_rownames('site_id')
-  
+
 pheatmap::pheatmap(
   marg_rate,
   clustering_method = 'average',
   show_colnames = F,
-  annotation_col = ann
+  annotation_col = ann,
+  annotation_colors = list(Status = c(
+    Repetitive = unname(rep_type_cols[['ALU']]),
+    'Non-repetitive' = unname(rep_type_cols[['NONREP']])
+  ))
 )
 ```
 
