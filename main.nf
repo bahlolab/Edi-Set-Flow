@@ -98,7 +98,7 @@ params.n_intervals       = 10
 params.analysis_threads  = 16
 
 
-params.report_model           = 'quasibinomial' // GLM family to run, one of 'linear', 'linear-ebbr', 'arcsine', 'arcsine-ebbr', 'quasibinomial', 'binomial'
+params.report_model           = 'linear-ebayes' // GLM family to run, one of 'linear', 'linear-ebayes', 'arcsine', 'arcsine-ebayes', 'quasibinomial', 'binomial'
 params.report_fixed_effects   = null     // covariates to include, comma sep
 params.report_min_med_dp      =  10      // min median depth per site
 params.report_min_med_vaf     = 0.001    // min median VAF per site

@@ -13,7 +13,7 @@
 #'   `site_id`, `sample_id`, `n_alt` (alternate/edited allele count) and
 #'   `n_ref` (reference allele count). A `depth` column (`n_alt + n_ref`) is
 #'   used to drop zero-depth observations. An optional `weights` column is
-#'   passed through as GLM observation weights (ignored for the `*-ebbr` models,
+#'   passed through as GLM observation weights (ignored for the `*-ebayes` models,
 #'   which derive their own weights).
 #' @param covariates_df A data frame of per-sample covariates, one row per
 #'   `sample_id`. Must contain `sample_id`, a `group` column, and any columns
@@ -30,14 +30,14 @@
 #'       `n_alt / (n_alt + n_ref)`.}
 #'     \item{`arcsine`}{Gaussian model on the arcsine-square-root transformed
 #'       proportion; margins are back-transformed to the rate scale.}
-#'     \item{`linear-ebbr`}{As `linear`, but the response is the per-site
+#'     \item{`linear-ebayes`}{As `linear`, but the response is the per-site
 #'       empirical-Bayes Beta-binomial posterior mean (see
 #'       `inverse_variance_weighting`). Requires the optional \pkg{ebbr}
 #'       package.}
-#'     \item{`arcsine-ebbr`}{As `arcsine`, but on the empirical-Bayes posterior
+#'     \item{`arcsine-ebayes`}{As `arcsine`, but on the empirical-Bayes posterior
 #'       mean. Requires the optional \pkg{ebbr} package.}
 #'   }
-#' @param inverse_variance_weighting Logical; for the `*-ebbr` models, weight
+#' @param inverse_variance_weighting Logical; for the `*-ebayes` models, weight
 #'   each observation by the inverse of its Beta-binomial posterior variance so
 #'   noisy low-depth samples contribute less. Default `TRUE`. Has no effect for
 #'   the non-`ebbr` models.
@@ -78,7 +78,7 @@ fit_edisites <- function(
     covariates_df,
     fixed_effects = character(),
     model = c('quasibinomial', 'binomial', 'linear', 'arcsine',
-              'linear-ebbr', 'arcsine-ebbr'),
+              'linear-ebayes', 'arcsine-ebayes'),
     inverse_variance_weighting = TRUE,
     weight_cap_q               = 0.95,
     fdr_bh     = TRUE,
@@ -91,9 +91,9 @@ fit_edisites <- function(
 
   model     <- match.arg(model)
 
-  # The '*-ebbr' models rely on the optional 'ebbr' package (GitHub-only), so
+  # The '*-ebayes' models rely on the optional 'ebbr' package (GitHub-only), so
   # fail early with install instructions rather than deep inside a cluster call.
-  if (model %in% c('linear-ebbr', 'arcsine-ebbr') &&
+  if (model %in% c('linear-ebayes', 'arcsine-ebayes') &&
       !requireNamespace('ebbr', quietly = TRUE)) {
     stop("model = '", model, "' requires the 'ebbr' package, which is not installed.\n",
          "Install it with: remotes::install_github('dgrtwo/ebbr')", call. = FALSE)
@@ -147,14 +147,14 @@ fit_edisites <- function(
       response = "asin(sqrt(n_alt / (n_alt + n_ref)))",
       termlabels = fixed_effects
     )
-  } else if (model == 'linear-ebbr') {
+  } else if (model == 'linear-ebayes') {
     # linear model on the empirical-Bayes posterior mean (see eb_shrink_site)
     family  <- gaussian(link = 'identity')
     formula <- reformulate(
       response = "post_mean",
       termlabels = fixed_effects
     )
-  } else if (model == 'arcsine-ebbr') {
+  } else if (model == 'arcsine-ebayes') {
     # arcsine model on the empirical-Bayes posterior mean (see eb_shrink_site)
     family  <- gaussian(link = 'identity')
     formula <- reformulate(
@@ -189,7 +189,7 @@ fit_edisites <- function(
         formula = formula,
         family  = family,
         .with_null    = !!fdr_emp,
-        .ebbr         = !!(model %in% c('linear-ebbr', 'arcsine-ebbr')),
+        .ebbr         = !!(model %in% c('linear-ebayes', 'arcsine-ebayes')),
         .iv_weighting = !!inverse_variance_weighting,
         .cap_q        = !!weight_cap_q
       ),
@@ -207,7 +207,7 @@ fit_edisites <- function(
   summary   <- get_table('summary')
   margins   <- get_table('margins')
 
-  if (model %in% c('arcsine', 'arcsine-ebbr')) {
+  if (model %in% c('arcsine', 'arcsine-ebayes')) {
     margins <- inverse_arcsine_margins(margins)
   }
 
@@ -247,7 +247,7 @@ make_clean_names <- memoise::memoise(janitor::make_clean_names)
 fit_glm <- function(data, formula, family, .with_null = FALSE, .do_null = FALSE,
                     .ebbr = FALSE, .iv_weighting = TRUE, .cap_q = 0.95) {
 
-  # empirical-Bayes shrinkage for the '*-ebbr' models: replace raw per-sample
+  # empirical-Bayes shrinkage for the '*-ebayes' models: replace raw per-sample
   # rates with the Beta-binomial posterior mean and (optionally) precision
   # weights, both derived per site. Done before the invariant-factor check so
   # the post_mean response column exists when glm() evaluates the formula.
@@ -354,27 +354,6 @@ eb_shrink_site <- function(n_alt, n_ref, iv_weighting = TRUE, cap_q = 0.95) {
     w <- rep(1, length(n_alt))
   }
   tibble(post_mean = post_mean, weights = w)
-}
-
-
-
-calc_quasi <- function(X, name = 'quasibinomial', return_all = TRUE, clamp = TRUE) {
-
-  Y <-
-    filter(X, model == 'binomial') %>%
-    mutate(
-      model = name,
-      dispersion_ = `if`(clamp, pmax(dispersion, 1), dispersion),
-      std_error   = sqrt(dispersion_) * std_error,
-      statistic   = estimate / std_error,
-      p_value     = 2 * exp(pt(-abs(statistic), df = df_residual, log.p = TRUE))
-    ) %>%
-    select(-dispersion_)
-
-  if (return_all) {
-    return(arrange_all(bind_rows(X, Y)))
-  }
-  return(Y)
 }
 
 calc_fdr <- function(data, bh=FALSE, storey=FALSE, ash=FALSE, emp=FALSE) {

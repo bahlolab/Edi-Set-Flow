@@ -211,10 +211,18 @@ read_edisites <-  function(
     }
     sample_summary <-
       counts_pass %>%
+      left_join(
+        select(smry, site_id, rep_type),
+        by = 'site_id'
+      ) %>%
       group_by(sample_id) %>%
       summarise(
         med_depth = median(depth),
-        med_vaf   = median(vaf[depth >= min_med_dp], na.rm = TRUE)
+        med_vaf   = median(vaf[depth >= min_med_dp], na.rm = TRUE),
+        global_index = sum(n_alt,                       na.rm = TRUE) / sum(depth,                       na.rm = TRUE),
+        alu_index    = sum(n_alt[rep_type == 'ALU'],    na.rm = TRUE) / sum(depth[rep_type == 'ALU'],    na.rm = TRUE),
+        rep_index    = sum(n_alt[rep_type == 'REP'],    na.rm = TRUE) / sum(depth[rep_type == 'REP'],    na.rm = TRUE),
+        nonrep_index = sum(n_alt[rep_type == 'NONREP'], na.rm = TRUE) / sum(depth[rep_type == 'NONREP'], na.rm = TRUE)
       )
 
     ret <-list(
@@ -285,7 +293,11 @@ read_edisites <-  function(
         group_by(sample_id) %>%
         summarise(
           med_depth = median(round(med_depth)),
-          med_vaf   = median(med_vaf)
+          med_vaf   = median(med_vaf),
+          global_index = mean(global_index),
+          alu_index = mean(alu_index),
+          rep_index = mean(rep_index),
+          nonrep_index = mean(nonrep_index)
         ),
       counts  = multidplyr::party_df(cluster, str_c('counts_', id))
     )

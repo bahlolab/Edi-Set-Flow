@@ -8,8 +8,8 @@ fit_edisites(
   counts_df,
   covariates_df,
   fixed_effects = character(),
-  model = c("quasibinomial", "binomial", "linear", "arcsine", "linear-ebbr",
-    "arcsine-ebbr"),
+  model = c("quasibinomial", "binomial", "linear", "arcsine", "linear-ebayes",
+    "arcsine-ebayes"),
   inverse_variance_weighting = TRUE,
   weight_cap_q = 0.95,
   fdr_bh = TRUE,
@@ -25,7 +25,7 @@ allele counts, one row per site/sample, with at least the columns
 `site_id`, `sample_id`, `n_alt` (alternate/edited allele count) and
 `n_ref` (reference allele count). A `depth` column (`n_alt + n_ref`) is
 used to drop zero-depth observations. An optional `weights` column is
-passed through as GLM observation weights (ignored for the `*-ebbr` models,
+passed through as GLM observation weights (ignored for the `*-ebayes` models,
 which derive their own weights).}
 
 \item{covariates_df}{A data frame of per-sample covariates, one row per
@@ -45,15 +45,15 @@ none.}
     `n_alt / (n_alt + n_ref)`.}
   \item{`arcsine`}{Gaussian model on the arcsine-square-root transformed
     proportion; margins are back-transformed to the rate scale.}
-  \item{`linear-ebbr`}{As `linear`, but the response is the per-site
+  \item{`linear-ebayes`}{As `linear`, but the response is the per-site
     empirical-Bayes Beta-binomial posterior mean (see
     `inverse_variance_weighting`). Requires the optional \pkg{ebbr}
     package.}
-  \item{`arcsine-ebbr`}{As `arcsine`, but on the empirical-Bayes posterior
+  \item{`arcsine-ebayes`}{As `arcsine`, but on the empirical-Bayes posterior
     mean. Requires the optional \pkg{ebbr} package.}
 }}
 
-\item{inverse_variance_weighting}{Logical; for the `*-ebbr` models, weight
+\item{inverse_variance_weighting}{Logical; for the `*-ebayes` models, weight
 each observation by the inverse of its Beta-binomial posterior variance so
 noisy low-depth samples contribute less. Default `TRUE`. Has no effect for
 the non-`ebbr` models.}
